@@ -14,22 +14,28 @@ bestSplit <- function(y, x, purity) {
     # TODO: generalize to nominal x
     xs <- unique(x)
     xs <- xs[order(xs), ]
-    sapply(xs, function(x_) {
-           left <- y[x <= x_, ]
-           right <- y[x > x_, ]
-           c(x_, purity(left, right))
-         })
+    splits = sapply(xs, function(x_) {
+                            left <- y[x <= x_, ]
+                            right <- y[x > x_, ]
+                            err <- c(purity(left), purity(right))
+                            wgt <- c(length(left), length(right))
+                            c(x_, weighted.mean(err, wgt))
+                        })
+    splits[, which.min(splits[2, ])]
 }
 
-testPure <- function(left, right) {
-    err = c(misclassErr(left), misclassErr(right))
-    wt = c(length(left), length(right))
-    weighted.mean(err, wt)
-}
-
-misclassErr <- function(x) {
-    x_table <- table(x)
-    x_props <- x_table / sum(x_table)
+misclass <- function(x) {
+    x_props <- prop.table(table(x))
     1 - max(x_props)
+}
+
+gini <- function(x) {
+    x_props <- prop.table(table(x))
+    sum(x_props * (1 - x_props))
+}
+
+inform <- function(x) {
+    x_props <- prop.table(table(x))
+    -sum(x_props * log(x_props))
 }
 
