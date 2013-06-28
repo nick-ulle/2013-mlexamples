@@ -1,31 +1,46 @@
 # trees.R
 # Author: Nick Ulle
 
-setClass('BinaryTree')
-setClass('BinaryTreeLeaf', representation(node = 'list'), 
-         prototype(node = list()), contains = 'BinaryTree')
-setClass('BinaryTreeBranch', representation(left = 'BinaryTree', 
-                                      right = 'BinaryTree', 
-                                      node = 'list'), 
-         prototype(left = new('BinaryTreeLeaf'), right = new('BinaryTreeLeaf'),
-                   node = list()), contains = 'BinaryTree')
+#setClass('BinaryTree', representation(root = 'BinaryTreeNode'))
+#setClass('BinaryTreeNode', representation(), contains = 'VIRTUAL')
+#setClass('BinaryTreeLeaf', prototype(node = list()), contains = 'BinaryTree')
+#setClass('BinaryTreeBranch', 
+#         representation(left = 'BinaryTree', right = 'BinaryTree'), 
+#         prototype(left = new('BinaryTreeLeaf'), right = new('BinaryTreeLeaf'),
+#                   node = list()), contains = 'BinaryTreeNode')
+#setMethod('show', signature(object = 'BinaryTreeBranch'),
+#          function(object) {
+#              cat('  1)', object@node$covariate, ' <= ', object@node$value,
+#                  '\n')
+#          })
+
+setClass('CTreeNode_')
+setClass('CTreeNode', representation('CTreeNode_', variable = 'character', 
+                                    split = 'numeric', left = 'CTreeNode_', 
+                                    right = 'CTreeNode_'))
+setClassUnion('CTreeNode_', c('NULL', 'CTreeNode'))
+setClass('CTree', representation(root = 'CTreeNode_'))
+
+#setGeneric('setLeft', function(obj, left) standardGeneric('setLeft'))
+#setMethod('setLeft', signature(obj = 'TreeNodeBranch', left = 'TreeNode'),
+#          function(obj, left) object@left <- left)
 
 makeTree <- function(y, x, purity, minsplit) {
-    tree <- NULL # Declare tree here.
+    tree <- new('CTree')
     if (nrow(y) < minsplit) {
-        tree <- new('BinaryTreeLeaf')
     } else {
-        tree <- new('BinaryTreeBranch')
-        tree@node <- bestCovariate(y, x, purity)
-        sub <- x[tree@node$covariate] <= tree@node$value
+        best <- bestCovariate(y, x, purity)
+        node <- new('CTreeNode', variable = best$covariate, split = best$value)
+        tree@root <- node
+        sub <- x[tree@root@variable] <= tree@root@split
         
         y_left <- y[sub, , drop = FALSE]
         x_left <- x[sub, ]
-        tree@left <- makeTree(y_left, x_left, purity, minsplit)
+        #tree@left <- makeTree(y_left, x_left, purity, minsplit)
 
         y_right <- y[!sub, , drop = FALSE]
         x_right <- x[!sub, ]
-        tree@right <- makeTree(y_right, x_right, purity, minsplit)
+        #tree@right <- makeTree(y_right, x_right, purity, minsplit)
     }
     return(tree)
 }
