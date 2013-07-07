@@ -1,65 +1,67 @@
 # tree.R
 # Author: Nick Ulle
 
-setClass('Tree',
-         representation(frame = 'data.frame', next_row = 'integer', 
-                        mem_expansion = 'integer'),
-         prototype(next_row = 2L, mem_expansion = 32L)
+setClass('Tree', representation('VIRTUAL', value = 'ANY'),
+         prototype(value = NA)
          )
 
-setMethod('initialize', 'Tree',
-          function(.Object, ...) {
-              .Object <- callNextMethod()
-              mem_expansion <- .Object@mem_expansion
-              .Object@frame <- 
-                  data.frame(left = rep(NA_integer_, mem_expansion),
-                             right = rep(NA_integer_, mem_expansion),
-                             split_var = I(character(mem_expansion)),
-                             split_pt = numeric(mem_expansion),
-                             observations = integer(mem_expansion),
-                             misclassed = numeric(mem_expansion)
-                             )
-              return(.Object)
-          })
+setClass('Leaf', representation('Tree'))
+
+setClass('Branch', representation('Tree', left = 'Tree', right = 'Tree'),
+         prototype(left = new('Leaf'), right = new('Leaf'))
+         )
 
 Tree <- function(value) {
-    tree <- new('Tree')
-    #tree@frame[1, 'value'] <- node
-    return(tree)
-}
-
-setLeftNode <- function(tree, node_id, node_value) {
-    tree@frame[id, 'left'] <- tree@next_row
-    tree@frame[tree@next_row, ] <- cbind(NA_integer_, NA_integer_, node)
-    tree@next_row <- tree@next_row + 1L
-    return(tree)
-}
-
-setRightNode <- function(tree, id, node) {
-    tree@frame[id, 'right'] <- tree@next_row
-    tree@frame[tree@next_row, ] <- cbind(NA_integer_, NA_integer_, node)
-    tree@next_row <- tree@next_row + 1L
-    return(tree)
-}
-
-setNode <- function(tree, node, value) {
-    tree@frame[node, -(1:2)] <- value
-    return(tree)
-}
-
-setMethod('show', 'Tree',
-          function(object) {
-              cat('Object of class \'Tree\':\n')
-              showSubtree(object, 1)
-          })
-
-showSubtree <- function(tree, id, level = 0L) {
-    if (!is.na(id)) {
-        node <- tree@frame[id, ]
-        cat(rep('  ', level), id, ') ', node[['split_var']], '\n', sep = '')
-
-        showSubtree(tree, node[['left']], level + 1L)
-        showSubtree(tree, node[['right']], level + 1L)
+    if (missing(value)) {
+        new('Leaf')
+    } else {
+        new('Leaf', value = value)
     }
 }
+
+setGeneric('setLeft', function(node, x) standardGeneric('setLeft'),
+           signature = 'node')
+
+setMethod('setLeft', 'Leaf',
+          function(node, x) {
+              new('Branch', value = node@value, left = x, right = Tree())
+          })
+
+setMethod('setLeft', 'Branch',
+          function(node, x) {
+              node@left <- x
+              return(node)
+          })
+
+setGeneric('setRight', function(node, x) standardGeneric('setRight'),
+           signature = 'node')
+
+setMethod('setRight', 'Leaf',
+          function(node, x) {
+              new('Branch', value = node@value, left = Tree(), right = x)
+          })
+
+setMethod('setRight', 'Branch',
+          function(node, x) {
+              node@right <- x
+              return(node)
+          })
+
+setGeneric('showSubtree', 
+           function(object, level = 0L) standardGeneric('showSubtree'),
+           signature = 'object')
+
+setMethod('showSubtree', 'Branch',
+          function(object, level) {
+              callNextMethod(object, level)
+              showSubtree(object@left, level + 1L)
+              showSubtree(object@right, level + 1L)
+          })
+
+setMethod('showSubtree', 'Tree',
+          function(object, level) {
+              cat(rep('  ', level), as.character(object@value), '\n', sep = '')
+          })
+
+setMethod('show', 'Tree', function(object) showSubtree(object))
 
