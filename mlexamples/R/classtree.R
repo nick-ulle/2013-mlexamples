@@ -182,6 +182,7 @@ impurityEntropy <- function(y) {
         decision <- names(y_props)[[y_max]]
         error <- 1 - y_props[[y_max]]
         impurity <- -sum(y_props * log(y_props))
+        if (is.nan(impurity)) impurity <- 0
     }
     list(decision = decision, error = error, impurity = impurity, n = n)
 }
