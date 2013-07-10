@@ -1,28 +1,22 @@
 # classtree.R
 # Author: Nick Ulle
 
-setClass('Split',
-         representation(split_var = 'character',
-                        split_pt = 'ANY',
-                        n = 'numeric',
-                        complexity = 'numeric',
-                        decision = 'character',
-                        error = 'numeric'
-                        )
-         )
+#' @include tree.R
+NULL
 
-Split <- function(split_var, split_pt, n, complexity, decision, error) {
-    new('Split', split_var = split_var, split_pt = split_pt, n = n,
-        complexity = complexity, decision = decision, error = error)
-}
-
-setMethod('as.character', 'Split',
-          function(x, ...) {
-              paste(x@split_var, x@split_pt, x@n, x@decision, 
-                    round(x@error, 4))
-          })
-
-makeTree <- function(data, f, min_split, root = NULL) {
+#' Build A Classification Tree
+#'
+#' This function builds a classification tree from data, following techniques
+#' described in Hastie, et al, among others. Nominal covariates and pruning via
+#' cross-validation are not yet supported.
+#'
+#' @param data a data.frame whose first column is the categorical response
+#' and whose other columns are ordinal covariates.
+#' @param f an impurity function. See \code{impurityError} for details.
+#' @param min_split minimum number of observations required to make a split.
+#' @return an S4 object of class Tree, representing the classification tree.
+#' @export
+makeTree <- function(data, f, min_split) {
     details <- f(data[1])
     tree <- Tree(Split('root', NA, details$n, NA_real_, details$decision,
                        details$error))
@@ -122,6 +116,15 @@ proportions <- function(y) {
     list(n = sum(y), decision = decision, proportions = proportions)
 }
 
+#' Impurity Functions
+#'
+#' These functions compute the impurity of a node.
+#'
+#' @param y a single column data.frame or vector of categorical response values.
+#' @return a list containing the node decision, misclassification error,
+#' impurity, and size.
+#' @rdname Impurity
+#' @export
 impurityError <- function(y) {
     n <- sum(table(y))
     y_props <- prop.table(table(y))
@@ -139,6 +142,8 @@ impurityError <- function(y) {
     list(decision = decision, error = error, impurity = impurity, n = n)
 }
 
+#' @rdname Impurity
+#' @export
 impurityGini <- function(y) {
     n <- sum(table(y))
     y_props <- prop.table(table(y))
@@ -156,6 +161,8 @@ impurityGini <- function(y) {
     list(decision = decision, error = error, impurity = impurity, n = n)
 }
 
+#' @rdname Impurity
+#' @export
 impurityEntropy <- function(y) {
     n <- sum(table(y))
     y_props <- prop.table(table(y))
@@ -172,4 +179,25 @@ impurityEntropy <- function(y) {
     }
     list(decision = decision, error = error, impurity = impurity, n = n)
 }
+
+setClass('Split',
+         representation(split_var = 'character',
+                        split_pt = 'ANY',
+                        n = 'numeric',
+                        complexity = 'numeric',
+                        decision = 'character',
+                        error = 'numeric'
+                        )
+         )
+
+Split <- function(split_var, split_pt, n, complexity, decision, error) {
+    new('Split', split_var = split_var, split_pt = split_pt, n = n,
+        complexity = complexity, decision = decision, error = error)
+}
+
+setMethod('as.character', 'Split',
+          function(x, ...) {
+              paste(x@split_var, x@split_pt, x@n, x@decision, 
+                    round(x@error, 4))
+          })
 

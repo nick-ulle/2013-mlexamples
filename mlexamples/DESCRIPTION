@@ -5,7 +5,8 @@ Title: Machine Learning Examples
 License: GPL-3
 Author: Nick Ulle
 Maintainer: Nick Ulle <nick.ulle@gmail.com>
-Description:
-    This package provides various machine learning algorithms implemented in
-    pure R, for testing performance of compiled R code.
-
+Description: This package provides various machine learning algorithms
+    implemented in pure R, for testing performance of compiled R code.
+Collate:
+    'tree.R'
+    'classtree.R'

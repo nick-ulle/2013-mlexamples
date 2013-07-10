@@ -1,0 +1,4 @@
+export(impurityEntropy)
+export(impurityError)
+export(impurityGini)
+export(makeTree)
