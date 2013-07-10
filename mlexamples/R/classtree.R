@@ -15,6 +15,10 @@ NULL
 #' @param f an impurity function. See \code{impurityError} for details.
 #' @param min_split minimum number of observations required to make a split.
 #' @return an S4 object of class Tree, representing the classification tree.
+#' @examples
+#' makeTree(iris[c(5, 1:4)], impurityGini, 50)
+#'
+#' makeTree(InsectSprays[c(2, 1)], impurityError, 25)
 #' @export
 makeTree <- function(data, f, min_split) {
     details <- f(data[1])
@@ -67,7 +71,7 @@ bestSplit <- function(x, y, f) {
     n <- nrow(y)
     x_mid <- sapply(x, sort)
     x_mid <- (x_mid[-n, , drop = FALSE] + x_mid[-1, , drop = FALSE]) / 2
-    x_mid <- apply(x_mid, 2, unique)
+    x_mid <- data.frame(apply(x_mid, 2, unique))
 
     # Gets the best split.
     splits <- mapply(bestSplitWithin, x_mid, x, MoreArgs = list(y, f))
@@ -75,7 +79,9 @@ bestSplit <- function(x, y, f) {
 
     # Sets up the return value.
     split_var <- names(split_pt)
-    y_split <- split(y, ifelse(x[split_var] < split_pt, 'left', 'right'))
+    y_split <- factor(x[split_var] < split_pt, c(TRUE, FALSE),
+                      c('left', 'right'))
+    y_split <- split(y, y_split)
     y_split <- sapply(y_split, f)
 
     left <- Split(split_var, split_pt, y_split[[4, 1]], NA_real_, 

@@ -25,4 +25,9 @@
   others. Nominal covariates and pruning via
   cross-validation are not yet supported.
 }
+\examples{
+makeTree(iris[c(5, 1:4)], impurityGini, 50)
+
+makeTree(InsectSprays[c(2, 1)], impurityError, 25)
+}
 
