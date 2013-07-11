@@ -1,4 +1,4 @@
-export(impurityEntropy)
-export(impurityError)
-export(impurityGini)
+export(costEntropy)
+export(costError)
+export(costGini)
 export(makeTree)

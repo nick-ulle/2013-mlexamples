@@ -21,11 +21,10 @@ NULL
 #' makeTree(InsectSprays[c(2, 1)], impurityError, 25)
 #' @export
 makeTree <- function(data, f, min_split) {
-    details <- f(data[1])
-    tree <- Tree(Split('root', NA, details$n, NA_real_, details$decision,
-                       details$error))
+    details <- splitDetails(data[1])
+    tree <- Tree(Split('root', NA, details$decision, NA_real_, details$n))
 
-    if (details$n >= min_split) {
+    if (sum(details$n) >= min_split) {
         children <- makeSplit(data, f, min_split)
         tree <- setLeft(tree, children$left)
         tree <- setRight(tree, children$right)
@@ -67,11 +66,11 @@ makeSplit <- function(data, f, min_split) {
 bestSplit <- function(x, y, f) {
     # Gets pairwise midpoints of sorted, unique covariate values.
     # TODO: add handling for nominal covariate values.
-    # TODO: move this up the call stack (it only needs to be done once).
+    # TODO: move sorting up the call stack (it only needs to be done once).
     n <- nrow(y)
     x_mid <- sapply(x, sort)
     x_mid <- (x_mid[-n, , drop = FALSE] + x_mid[-1, , drop = FALSE]) / 2
-    x_mid <- data.frame(apply(x_mid, 2, unique))
+    x_mid <- lapply(data.frame(x_mid), unique)
 
     # Gets the best split.
     splits <- mapply(bestSplitWithin, x_mid, x, MoreArgs = list(y, f))
@@ -79,132 +78,91 @@ bestSplit <- function(x, y, f) {
 
     # Sets up the return value.
     split_var <- names(split_pt)
-    y_split <- factor(x[split_var] < split_pt, c(TRUE, FALSE),
-                      c('left', 'right'))
+    y_split <- factor(x[split_var] < split_pt, c(TRUE, FALSE))
     y_split <- split(y, y_split)
-    y_split <- sapply(y_split, f)
+    y_split <- vapply(y_split, splitDetails, list(NA_character_, NA_real_))
 
-    left <- Split(split_var, split_pt, y_split[[4, 1]], NA_real_, 
-                  y_split[[1, 1]], y_split[[2, 1]])
-    right <- Split(split_var, split_pt, y_split[[4, 2]], NA_real_,
-                   y_split[[1, 2]], y_split[[2, 2]])
+    left <- Split(split_var, split_pt, y_split[[1, 1]], NA_real_, 
+                  y_split[[2, 1]])
+    right <- Split(split_var, split_pt, y_split[[1, 2]], NA_real_,
+                   y_split[[2, 2]])
     list(left = left, right = right)
 }
 
 # Finds best split within one covariate.
 bestSplitWithin <- function(x_mid, x, y, f) {
-    splits <- sapply(x_mid,
-                     function(x_) {
-                         split <- numeric(2)
-                         l <- y[x < x_, , drop = FALSE]
-                         r <- y[x >= x_, , drop = FALSE]
-                         l_impurity <- f(l)$impurity
-                         r_impurity <- f(r)$impurity
-
-                         split[[1]] <- weighted.mean(c(l_impurity, r_impurity),
-                                                     c(nrow(l), nrow(r))
-                                                     )
-                         split[[2]] <- x_
-                         return(split)
-                        })
+    splits <- vapply(x_mid,
+                     function(x_) { 
+                         y_split <- factor(x < x_, c(TRUE, FALSE))
+                         y_split <- split(y, y_split)
+                         y_split <- vapply(y_split,
+                                           function(y_) c(f(y_), nrow(y_)),
+                                           numeric(2))
+                         c(weighted.mean(y_split[1, ], y_split[2, ]), x_)
+                        }, numeric(2))
     splits[, which.min(splits[1, ])]
 }
 
-# TODO: separate node 'stats' computation from node impurity computation.
-# Prototype for separation of computing node 'stats' and node impurity.
-proportions <- function(y) {
-    y <- table(y)
-    proportions <- drop(as.matrix(prop.table(y)))
-    y_max <- which.max(proportions)
-    # Handles the case where every proportion is NaN, i.e., y is empty.
-    if (length(y_max) == 0) y_max <- 1L
-    decision <- names(proportions)[[y_max]]
-    list(n = sum(y), decision = decision, proportions = proportions)
-}
-
-#' Impurity Functions
+#' Retrieve Split Details
 #'
-#' These functions compute the impurity of a node.
+#' \code{splitDetails} retrieves the number of elements and the decision
+#' for a split.
+splitDetails <- function(y) {
+    n <- c(table(y))
+    decision <- names(which.max(n))
+    list(decision = decision, n = n)
+}
+
+#' Cost Functions
 #'
-#' @param y a single column data.frame or vector of categorical response values.
-#' @return a list containing the node decision, misclassification error,
-#' impurity, and size.
-#' @rdname Impurity
+#' These functions compute the cost of representing a set with its majority
+#' element.
+#'
+#' @param y a factor.
+#' @return a numeric cost.
+#' @rdname Cost
 #' @export
-impurityError <- function(y) {
-    n <- sum(table(y))
-    y_props <- prop.table(table(y))
-    y_max <- which.max(y_props)
-    if (length(y_max) == 0) {
-        # Every proportion was NaN, i.e., y is empty.
-        decision <- names(y_props)[[1L]]
-        error <- 0
-        impurity <- 0
-    } else {
-        decision <- names(y_props)[[y_max]]
-        error <- 1 - y_props[[y_max]]
-        impurity <- error
-    }
-    list(decision = decision, error = error, impurity = impurity, n = n)
+costError <- function(y) {
+    y_prop <- prop.table(table(y))
+    cost <- if (any(is.nan(y_prop))) 0 else 1 - max(y_prop)
+    return(cost)
 }
 
-#' @rdname Impurity
+#' @rdname Cost
 #' @export
-impurityGini <- function(y) {
-    n <- sum(table(y))
-    y_props <- prop.table(table(y))
-    y_max <- which.max(y_props)
-    if (length(y_max) == 0) {
-        # Every proportion was NaN, i.e., y is empty.
-        decision <- names(y_props)[[1L]]
-        error <- 0
-        impurity <- 0
-    } else {
-        decision <- names(y_props)[[y_max]]
-        error <- 1 - y_props[[y_max]]
-        impurity <- sum(y_props * (1 - y_props))
-    }
-    list(decision = decision, error = error, impurity = impurity, n = n)
+costGini <- function(y) {
+    y_prop <- prop.table(table(y))
+    cost <- if (any(is.nan(y_prop))) 0 else sum(y_prop * (1 - y_prop))
+    return(cost)
 }
 
-#' @rdname Impurity
+#' @rdname Cost
 #' @export
-impurityEntropy <- function(y) {
-    n <- sum(table(y))
-    y_props <- prop.table(table(y))
-    y_max <- which.max(y_props)
-    if (length(y_max) == 0) {
-        # Every proportion was NaN, i.e., y is empty.
-        decision <- names(y_props)[[1L]]
-        error <- 0
-        impurity <- 0
-    } else {
-        decision <- names(y_props)[[y_max]]
-        error <- 1 - y_props[[y_max]]
-        impurity <- -sum(y_props * log(y_props))
-        if (is.nan(impurity)) impurity <- 0
-    }
-    list(decision = decision, error = error, impurity = impurity, n = n)
+costEntropy <- function(y) {
+    y_prop <- prop.table(table(y))
+    cost <- -y_prop * log(y_prop)
+    # Handles the case where y_prop contains zero or NaN.
+    cost <- sum(ifelse(is.nan(cost), 0, cost))
+    return(cost)
 }
 
 setClass('Split',
          representation(split_var = 'character',
                         split_pt = 'ANY',
-                        n = 'numeric',
-                        complexity = 'numeric',
                         decision = 'character',
-                        error = 'numeric'
+                        complexity = 'numeric',
+                        n = 'integer'
                         )
          )
 
-Split <- function(split_var, split_pt, n, complexity, decision, error) {
-    new('Split', split_var = split_var, split_pt = split_pt, n = n,
-        complexity = complexity, decision = decision, error = error)
+Split <- function(split_var, split_pt, decision, complexity, n) {
+    new('Split', split_var = split_var, split_pt = split_pt,
+        decision = decision, complexity = complexity, n = n)
 }
 
 setMethod('as.character', 'Split',
           function(x, ...) {
-              paste(x@split_var, x@split_pt, x@n, x@decision, 
-                    round(x@error, 4))
+              paste(x@split_var, x@split_pt, sum(x@n), x@decision, 
+                    round(x@complexity, 4))
           })
 
