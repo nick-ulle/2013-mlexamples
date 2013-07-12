@@ -21,45 +21,30 @@ NULL
 #' makeTree(InsectSprays[c(2, 1)], impurityError, 25)
 #' @export
 makeTree <- function(data, f, min_split) {
-    details <- splitDetails(data[1])
-    tree <- Tree(Split('root', NA, details$decision, NA_real_, details$n))
-
-    if (sum(details$n) >= min_split) {
-        children <- makeSplit(data, f, min_split)
-        tree <- setLeft(tree, children$left)
-        tree <- setRight(tree, children$right)
-    }
-    return(tree)
+    makeSubtree(data, f, min_split)
 }
 
-makeSplit <- function(data, f, min_split) {
-    # TODO: clean up this function.
-    best <- bestSplit(data[-1], data[1], f)
+# Makes a subtree given the data.
+makeSubtree <- function(data, f, min_split, split_var_old = NA_character_,
+                      split_pt_old = NA_real_) {
+    details <- splitDetails(data[1])
+    split_old <- Split(split_var_old, split_pt_old, details$decision, NA_real_,
+                       details$n)
 
-    # Sets up the left subtree.
-    left <- Tree(best$left)
-    data_left <- data[data[best$left@split_var] <= best$left@split_pt, ,
-                      drop = FALSE]
-    n_left <- nrow(data_left)
+    if(sum(details$n) >= min_split) {
+        split_pt <- bestSplit(data[-1], data[1], f)
+        split_var <- names(split_pt)
 
-    if (n_left >= min_split) {
-        split <- makeSplit(data_left, f, min_split)
-        left <- setLeft(left, split$left)
-        left <- setRight(left, split$right)
+        split_data <- factor(data[split_var] < split_pt, c(TRUE, FALSE))
+        split_data <- split(data, split_data)
+        split_trees <- lapply(split_data, makeSubtree, f, min_split, split_var,
+                              split_pt)
+
+        tree <- Tree(split_old, split_trees[[1]], split_trees[[2]])
+    } else {
+        tree <- Tree(split_old)
     }
-
-    # Sets up the right subtree.
-    right <- Tree(best$right)
-    data_right <- data[data[best$right@split_var] > best$right@split_pt, ,
-                       drop = FALSE]
-    n_right <- nrow(data_right)
-
-    if (n_right >= min_split) {
-        split <- makeSplit(data_right, f, min_split)
-        right <- setLeft(right, split$left)
-        right <- setRight(right, split$right)
-    }
-    list(left = left, right = right)
+    return(tree)
 }
 
 # Finds best split among all covariates.
@@ -76,17 +61,7 @@ bestSplit <- function(x, y, f) {
     splits <- mapply(bestSplitWithin, x_mid, x, MoreArgs = list(y, f))
     split_pt <- splits[2, which.min(splits[1, ])]
 
-    # Sets up the return value.
-    split_var <- names(split_pt)
-    y_split <- factor(x[split_var] < split_pt, c(TRUE, FALSE))
-    y_split <- split(y, y_split)
-    y_split <- vapply(y_split, splitDetails, list(NA_character_, NA_real_))
-
-    left <- Split(split_var, split_pt, y_split[[1, 1]], NA_real_, 
-                  y_split[[2, 1]])
-    right <- Split(split_var, split_pt, y_split[[1, 2]], NA_real_,
-                   y_split[[2, 2]])
-    list(left = left, right = right)
+    return(split_pt)
 }
 
 # Finds best split within one covariate.

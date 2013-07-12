@@ -11,13 +11,21 @@ setClass('Branch', representation('Tree', left = 'Tree', right = 'Tree'),
          prototype(left = new('Leaf'), right = new('Leaf'))
          )
 
-Tree <- function(value) {
-    if (missing(value)) {
-        new('Leaf')
-    } else {
-        new('Leaf', value = value)
-    }
-}
+setGeneric('Tree', function(value, left, right) standardGeneric('Tree'),
+           signature = c('left', 'right'))
+
+setMethod('Tree', 'Tree',
+          function(value, left, right) {
+              new('Branch', value = value, left = left, right = right)
+          })
+
+setMethod('Tree', 'missing',
+          function(value) {
+              if (missing(value)) 
+                  new('Leaf')
+              else 
+                  new('Leaf', value = value)
+          })
 
 setGeneric('setLeft', function(node, x) standardGeneric('setLeft'),
            signature = 'node')
