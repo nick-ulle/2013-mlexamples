@@ -78,9 +78,9 @@ bestSplitWithin <- function(x_mid, x, y, f) {
                          y_split <- vapply(y_split,
                                            function(y_) c(f(y_), nrow(y_)),
                                            numeric(2))
-                         c(weighted.mean(y_split[1, ], y_split[2, ]), x_)
+                         c(sum(y_split[1, ] * y_split[2, ]), x_)
                         }, numeric(2))
-    splits[, which.min(splits[1, ])]
+    splits[, which.min(splits[1, ])] / c(nrow(y), 1)
 }
 
 #' Retrieve Split Details
