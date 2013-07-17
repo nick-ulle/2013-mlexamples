@@ -26,7 +26,7 @@ makeTree <- function(data, f, min_split) {
 
 # Makes a subtree given the data.
 makeSubtree <- function(data, f, min_split, split_var_old = NA_character_,
-                      split_pt_old = NA_real_) {
+                      split_pt_old = NA_real_, min_bucket = min_split %/% 3) {
     details <- splitDetails(data[1])
     split_old <- Split(split_var_old, split_pt_old, details$decision, NA_real_,
                        details$n)
@@ -37,13 +37,18 @@ makeSubtree <- function(data, f, min_split, split_var_old = NA_character_,
 
         split_data <- factor(data[split_var] < split_pt, c(TRUE, FALSE))
         split_data <- split(data, split_data)
-        split_trees <- lapply(split_data, makeSubtree, f, min_split, split_var,
-                              split_pt)
-
-        tree <- Tree(split_old, split_trees[[1]], split_trees[[2]])
-    } else {
-        tree <- Tree(split_old)
+        split_n <- vapply(split_data, nrow, NA_integer_)
+        
+        if (all(split_n >= min_bucket)) {
+            split_trees <- lapply(split_data, makeSubtree, f, min_split,
+                                  split_var, split_pt, min_bucket)
+            tree <- Tree(split_old, split_trees[[1]], split_trees[[2]])
+            return(tree)
+        }
     }
+    # Reaching this point means this node is a leaf.
+    # TODO: handle complexity somehow
+    tree <- Tree(split_old)
     return(tree)
 }
 
