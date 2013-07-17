@@ -21,18 +21,16 @@ NULL
 #' makeTree(InsectSprays[c(2, 1)], impurityError, 25)
 #' @export
 makeTree <- function(data, f, min_split) {
-    makeSubtree(data, f, min_split)
+    makeSubtree(data, list(cost = f, complexity = costError),  min_split)
 }
 
 # Makes a subtree given the data.
 makeSubtree <- function(data, f, min_split, split_var_old = NA_character_,
                       split_pt_old = NA_real_, min_bucket = min_split %/% 3) {
     details <- splitDetails(data[1])
-    split_old <- Split(split_var_old, split_pt_old, details$decision, NA_real_,
-                       details$n)
 
     if(sum(details$n) >= min_split) {
-        split_pt <- bestSplit(data[-1], data[1], f)
+        split_pt <- bestSplit(data[-1], data[1], f$cost)
         split_var <- names(split_pt)
 
         split_data <- factor(data[split_var] < split_pt, c(TRUE, FALSE))
@@ -40,14 +38,33 @@ makeSubtree <- function(data, f, min_split, split_var_old = NA_character_,
         split_n <- vapply(split_data, nrow, NA_integer_)
         
         if (all(split_n >= min_bucket)) {
+            # Reaching this point means this node is a branch.
+
             split_trees <- lapply(split_data, makeSubtree, f, min_split,
                                   split_var, split_pt, min_bucket)
+
+            complexity <- vapply(split_trees, function(s_) s_@value@complexity,
+                                 numeric(3))
+            complexity <- rowSums(complexity)
+            complexity[[1]] <- 
+                (f$complexity(data[1]) * sum(details$n) - complexity[[2]]) /
+                (complexity[[3]] - 1)
+
+            split_old <- Split(split_var_old, split_pt_old, details$decision,
+                               complexity, details$n)
             tree <- Tree(split_old, split_trees[[1]], split_trees[[2]])
             return(tree)
         }
     }
     # Reaching this point means this node is a leaf.
-    # TODO: handle complexity somehow
+
+    # Complexity is stored as
+    #   (collapse point, cost of subtree, number of leaves in subtree).
+    # The latter two are necessary for computing collapse points of ancestors.
+    complexity <- c(NA_real_, f$complexity(data[1]) * sum(details$n), 1)
+
+    split_old <- Split(split_var_old, split_pt_old, details$decision,
+                       complexity, details$n)
     tree <- Tree(split_old)
     return(tree)
 }
@@ -142,7 +159,11 @@ Split <- function(split_var, split_pt, decision, complexity, n) {
 
 setMethod('as.character', 'Split',
           function(x, ...) {
-              paste(x@split_var, x@split_pt, sum(x@n), x@decision, 
-                    round(x@complexity, 4))
+              split <- if (is.na(x@split_var)) '<root>' else 
+                  paste0(x@split_var, ' ', x@split_pt)
+              complexity <- if (is.na(x@complexity[[1]])) ' *' else
+                  paste0(' ', round(x@complexity[[1]], 4))
+              paste0(split, ' ',  x@decision,
+                     ' (', paste0(x@n, collapse = ', '), ')', complexity)
           })
 
