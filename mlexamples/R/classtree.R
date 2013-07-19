@@ -143,6 +143,33 @@ costEntropy <- function(y) {
     return(cost)
 }
 
+setMethod('predict', 'Branch',
+          function(object, data, a, ...) {
+              n <- nrow(data)
+              if (n <= 0) return(NA_character_)
+
+              split_old <- object@value
+
+              if (split_old@complexity[[1]] > a) { 
+                  split <- object@left@value
+                  splits <- factor(data[split@split_var] < split@split_pt,
+                                   c(TRUE, FALSE))
+                  split <- split(data, splits)
+                  split[[1]] <- predict(object@left, split[[1]], a, ...)
+                  split[[2]] <- predict(object@right, split[[2]], a, ...)
+                  return(unsplit(split, splits))
+              }
+
+              rep(split_old@decision, n)
+          })
+
+setMethod('predict', 'Leaf', 
+          function(object, data, a, ...) {
+              n <- nrow(data)
+              if (n <= 0) return(NA_character_)
+              rep(object@value@decision, n)
+          })
+
 setClass('Split',
          representation(split_var = 'character',
                         split_pt = 'ANY',
