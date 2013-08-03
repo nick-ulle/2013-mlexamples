@@ -25,10 +25,20 @@ makeTree <- function(data, f, min_split) {
 }
 
 # Makes a subtree given the data.
-makeSubtree <- function(data, f, min_split, split_var_old = NA_character_,
-                      split_pt_old = NA_real_, min_bucket = min_split %/% 3) {
+makeSubtree <- function(data, f, min_split, min_bucket = min_split %/% 3, 
+                        tree) {
     details <- splitDetails(data[1])
 
+    # Make a Tree if we don't have one yet.
+    if (missing(tree)) {
+        tree <- Tree()
+        split_old <- Split(NA_character_, NA_real_, details$decision, NA_real_,
+                       details$n)
+        tree$setValue(split_old)
+    }
+
+
+    # Decide if we should split, and do splitting stuff.
     if(sum(details$n) >= min_split) {
         split_pt <- bestSplit(data[-1], data[1], f$cost)
         split_var <- names(split_pt)
@@ -36,24 +46,34 @@ makeSubtree <- function(data, f, min_split, split_var_old = NA_character_,
         split_data <- factor(data[split_var] < split_pt, c(TRUE, FALSE))
         split_data <- split(data, split_data)
         split_n <- vapply(split_data, nrow, NA_integer_)
+        split_details <- sapply(split_data, function(x_) splitDetails(x_[1]))
         
         if (all(split_n >= min_bucket)) {
+            l_split <- Split(split_var, split_pt, split_details[[1L, 1L]],
+                             NA_real_, split_details[[2L, 1L]])
+            r_split <- Split(split_var, split_pt, split_details[[1L, 2L]],
+                             NA_real_, split_details[[2L, 2L]])
             # Reaching this point means this node is a branch.
-
-            split_trees <- lapply(split_data, makeSubtree, f, min_split,
-                                  split_var, split_pt, min_bucket)
-
-            complexity <- vapply(split_trees, function(s_) s_@value@complexity,
-                                 numeric(3))
-            complexity <- rowSums(complexity)
-            complexity[[1]] <- 
-                (f$complexity(data[1]) * sum(details$n) - complexity[[2]]) /
-                (complexity[[3]] - 1)
-
-            split_old <- Split(split_var_old, split_pt_old, details$decision,
-                               complexity, details$n)
-            tree <- Tree(split_old, split_trees[[1]], split_trees[[2]])
+            tree$setLeft(l_split)
+            tree$setRight(r_split)
+            # tree$setChildren()
+            tree$goLeft()
+            makeSubtree(split_data[[1L]], f, min_split, min_bucket, tree)
+            tree$goUp()$goRight()
+            makeSubtree(split_data[[2L]], f, min_split, min_bucket, tree)
             return(tree)
+
+#            complexity <- vapply(split_trees, function(s_) s_@value@complexity,
+#                                 numeric(3))
+#            complexity <- rowSums(complexity)
+#            complexity[[1]] <- 
+#                (f$complexity(data[1]) * sum(details$n) - complexity[[2]]) /
+#                (complexity[[3]] - 1)
+#
+#            split_old <- Split(split_var_old, split_pt_old, details$decision,
+#                               complexity, details$n)
+#            tree <- Tree(split_old, split_trees[[1]], split_trees[[2]])
+#            return(tree)
         }
     }
     # Reaching this point means this node is a leaf.
@@ -61,11 +81,11 @@ makeSubtree <- function(data, f, min_split, split_var_old = NA_character_,
     # Complexity is stored as
     #   (collapse point, cost of subtree, number of leaves in subtree).
     # The latter two are necessary for computing collapse points of ancestors.
-    complexity <- c(NA_real_, f$complexity(data[1]) * sum(details$n), 1)
-
-    split_old <- Split(split_var_old, split_pt_old, details$decision,
-                       complexity, details$n)
-    tree <- Tree(split_old)
+#    complexity <- c(NA_real_, f$complexity(data[1]) * sum(details$n), 1)
+#
+#    split_old <- Split(split_var_old, split_pt_old, details$decision,
+#                       complexity, details$n)
+#    tree <- Tree(split_old)
     return(tree)
 }
 
