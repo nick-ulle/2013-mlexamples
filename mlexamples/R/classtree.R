@@ -14,7 +14,7 @@ NULL
 #' and whose other columns are ordinal covariates.
 #' @param f an impurity function. See \code{impurityError} for details.
 #' @param min_split minimum number of observations required to make a split.
-#' @return an S4 object of class Tree, representing the classification tree.
+#' @return a reference class ClassTree, representing the classification tree.
 #' @examples
 #' makeTree(iris[c(5, 1:4)], impurityGini, 50)
 #'

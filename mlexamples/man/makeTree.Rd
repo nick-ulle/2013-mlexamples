@@ -16,7 +16,7 @@
   to make a split.}
 }
 \value{
-  an S4 object of class Tree, representing the
+  a reference class ClassTree, representing the
   classification tree.
 }
 \description{
