@@ -21,7 +21,12 @@ NULL
 #' makeTree(InsectSprays[c(2, 1)], impurityError, 25)
 #' @export
 makeTree <- function(data, f, min_split) {
-    makeSubtree(data, list(cost = f, complexity = costError),  min_split)
+    f <- list(cost = f, complexity = costError)
+    tree <- makeSubtree(data, f,  min_split)
+    tree$finalizeCollapse()
+    # Do cross-validation stuff.
+    #tree$prune(alpha_cv)
+    return(tree)
 }
 
 # Makes a subtree given the data.
@@ -195,15 +200,26 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             length(collapse_) <<- new_length
             n_ <<- rbind(n_, matrix(NA_integer_, mem_reserve, dim(n_)[[2L]]))
         },
+        removeNode = function() {
+            callSuper()
+            variable <<- variable[-cursor]
+            point <<- point[-cursor]
+            decision_ <<- decision_[-cursor]
+            risk_ <<- risk_[-cursor]
+            leaf_risk_ <<- leaf_risk_[-cursor]
+            leaf_count_ <<- leaf_count_[-cursor]
+            collapse_ <<- collapse_[-cursor]
+            n_ <<- n_[-cursor, ]
+        },
         addSplit = function(variable, point) {
             addLeft()
             addRight()
-            ids <- c(frame[[cursor, 1L]], frame[[cursor, 2L]])
+            ids <- frame[cursor, 1L:2L]
             variable[ids] <<- variable
             point[ids] <<- point
         },
         updateCollapse = function() {
-            ids <- c(frame[[cursor, 1L]], frame[[cursor, 2L]])
+            ids <- frame[cursor, 1L:2L]
 
             if (any(is.na(ids))) {
                 leaf_risk <<- risk
@@ -215,10 +231,68 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
                 collapse <<- (risk - leaf_risk) / (leaf_count - 1L)
             }
         },
+        finalizeCollapse = function() {
+            # NOTE: Multiple best collapse points are not handled
+            # simultaneously, but rather by consecutive iterations. This is 
+            # also how the algorithm outlined by Breiman operates.
+
+            # Find minimum collapse node, prune, and update repeatedly.
+            final_collapse <- rep(Inf, next_id - 1L)
+            final_leaf_risk <- leaf_risk_
+            final_leaf_count <- leaf_count_
+
+            cursor <<- which.min(collapse_)
+            while (cursor > 1L) {
+                # Store the collapse value.
+                final_collapse[[cursor]] <- collapse
+                # Make this node have risk of a leaf.
+                leaf_risk <<- risk
+                leaf_count <<- 1L
+                collapse <<- Inf
+                # Update ancestors.
+                while(cursor > 1L) {
+                    goUp()
+                    updateCollapse()
+                }
+                # Get new best collapse point.
+                cursor <<- which.min(collapse_)
+            }
+
+            final_collapse[[cursor]] <- collapse
+            collapse_[seq_along(final_collapse)] <<- final_collapse
+            # TODO: possibly redesign updateCollapse() so that storing
+            # leaf_risk_ and leaf_count_ is not necessary.
+            leaf_risk_ <<- final_leaf_risk
+            leaf_count_ <<- final_leaf_count
+        },
+        prune = function(cutoff) {
+            # Walk down the tree, pruning anything whose collapse value doesn't
+            # exceed cutoff.
+            ids <- frame[cursor, 1L:2L]
+            if (any(is.na(ids))) {
+                # This node is a leaf, so do nothing.
+            } else {
+                if (collapse < cutoff) {
+                    # This branch gets pruned, so make this node a leaf.
+                    removeLeft()
+                    removeRight()
+                } else {
+                    # This branch does not get pruned, so descend.
+                    goLeft()
+                    prune(cutoff)
+                    goUp()
+
+                    goRight()
+                    prune(cutoff)
+                    goUp()
+                }
+                # TODO: the leaf risks and leaf counts should be updated here.
+            }
+        },
         showSubtree = function(id, level = 0L) {
             if (!is.na(id)) {
                 str <- paste0(variable[[id]], ' ', point[[id]], ' ',
-                              decision_[[id]])
+                              decision_[[id]], ' ', collapse_[[id]])
                 cat(rep.int('  ', level), id, ') ', str, '\n', sep = '')
                 level <- level + 1L
                 showSubtree(frame[[id, 1L]], level)

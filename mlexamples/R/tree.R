@@ -42,6 +42,25 @@ Tree <- setRefClass('Tree',
         increaseReserve = function() {
             frame <<- rbind(frame, matrix(NA_integer_, mem_reserve, 3L))
         },
+        removeNode = function() {
+            frame[frame == cursor] <<- NA_integer_
+            frame[frame > cursor & !is.na(frame)] <<- 
+                frame[frame > cursor & !is.na(frame)] - 1L
+            frame <<- frame[-cursor, ]
+            next_id <<- next_id - 1L
+        },
+        removeChild = function(side) {
+            parent_id <- cursor
+            cursor <<- frame[[cursor, side]]
+            if (!is.na(cursor)) {
+                removeLeft()
+                removeRight()
+                removeNode()
+            }
+            cursor <<- parent_id
+        },
+        removeLeft = function() removeChild(1L),
+        removeRight = function() removeChild(2L),
         show = function() {
             cat('Cursor at ', cursor, '.\n\n', sep = '')
             showSubtree(1L)
