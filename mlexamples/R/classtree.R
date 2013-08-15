@@ -34,11 +34,10 @@ makeSubtree <- function(data, f, min_split, min_bucket = min_split %/% 3,
                         tree) {
     details <- splitDetails(data[1])
     if (missing(tree)) {
-        tree <- ClassTree(details$decision, details$n)
-    } else {
-        tree$decision <- details$decision
-        tree$n <- details$n
+        tree <- ClassTree(length(details$n))
     }
+    tree$decision <- details$decision
+    tree$n <- details$n
 
     # Decide if we should split, and do splitting stuff.
     # In any iteration we need to check that the parent is big enough to split,
@@ -180,13 +179,11 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         }
     ),
     methods = list(
-        initialize = function(decision, n, ...) {
-            callSuper(n_ = matrix(NA_integer_, 0L, length(n)), ...)
+        initialize = function(classes = 0L, ...) {
+            callSuper(n_ = matrix(NA_integer_, 0L, classes), ...)
             # Set values.
             variable[[1L]] <<- NA_character_
             point[[1L]] <<- NA_real_
-            decision <<- decision
-            n <<- n
         },
 
         # ----- Memory Allocation -----
