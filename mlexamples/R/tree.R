@@ -16,16 +16,34 @@ Tree <- setRefClass('Tree',
                       next_id = 2L, mem_reserve = mem_reserve, ...) 
             increaseReserve()
         }, 
+
+        # ----- Memory Allocation -----
+        increaseReserve = function() {
+            frame <<- rbind(frame, matrix(NA_integer_, mem_reserve, 3L))
+        },
+
+        # ----- Navigation -----
         go = function(direction) {
             id <- frame[[cursor, direction]]
-            if (is.na(id)) stop(paste0('Destination node (', cursor, 
-                                       ') does not exist.\n'))
+            if (is.na(id)) stop('Destination node does not exist.\n')
             cursor <<- id
             invisible(.self)
         },
         goLeft = function() go(1L),
         goRight = function() go(2L),
         goUp = function() go(3L),
+
+        goRoot = function() cursor <<- 1L,
+
+        isRoot = function() cursor == 1L,
+        isLeaf = function() {
+            all(is.na(frame[cursor, 1L:2L]))
+        },
+
+        hasLeft = function() !is.na(frame[cursor, 1L]),
+        hasRight = function() !is.na(frame[cursor, 2L]),
+
+        # ----- Node Creation -----
         addChild = function(side) {
             if (is.na(frame[[cursor, side]])) {
                 frame[[cursor, side]] <<- next_id
@@ -39,9 +57,8 @@ Tree <- setRefClass('Tree',
         },
         addLeft = function() addChild(1L),
         addRight = function() addChild(2L),
-        increaseReserve = function() {
-            frame <<- rbind(frame, matrix(NA_integer_, mem_reserve, 3L))
-        },
+
+        # ----- Node Deletion -----
         removeNode = function() {
             frame[frame == cursor] <<- NA_integer_
             frame[frame > cursor & !is.na(frame)] <<- 
@@ -49,6 +66,7 @@ Tree <- setRefClass('Tree',
             frame <<- frame[-cursor, ]
             next_id <<- next_id - 1L
         },
+
         removeChild = function(side) {
             parent_id <- cursor
             cursor <<- frame[[cursor, side]]
@@ -61,6 +79,8 @@ Tree <- setRefClass('Tree',
         },
         removeLeft = function() removeChild(1L),
         removeRight = function() removeChild(2L),
+
+        # ----- Display -----
         show = function() {
             cat('Cursor at ', cursor, '.\n\n', sep = '')
             showSubtree(1L)

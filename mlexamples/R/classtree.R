@@ -188,6 +188,8 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             decision <<- decision
             n <<- n
         },
+
+        # ----- Memory Allocation -----
         increaseReserve = function() {
             callSuper()
             new_length <- length(variable) + mem_reserve
@@ -200,6 +202,17 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             length(collapse_) <<- new_length
             n_ <<- rbind(n_, matrix(NA_integer_, mem_reserve, dim(n_)[[2L]]))
         },
+
+        # ----- Node Creation -----
+        addSplit = function(variable, point) {
+            addLeft()
+            addRight()
+            ids <- frame[cursor, 1L:2L]
+            variable[ids] <<- variable
+            point[ids] <<- point
+        },
+
+        # ----- Node Deletion -----
         removeNode = function() {
             callSuper()
             variable <<- variable[-cursor]
@@ -211,17 +224,24 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             collapse_ <<- collapse_[-cursor]
             n_ <<- n_[-cursor, ]
         },
-        addSplit = function(variable, point) {
-            addLeft()
-            addRight()
-            ids <- frame[cursor, 1L:2L]
-            variable[ids] <<- variable
-            point[ids] <<- point
+
+        # ----- Display -----
+        showSubtree = function(id, level = 0L) {
+            if (!is.na(id)) {
+                str <- paste0(variable[[id]], ' ', point[[id]], ' ',
+                              decision_[[id]], ' ', collapse_[[id]])
+                cat(rep.int('  ', level), id, ') ', str, '\n', sep = '')
+                level <- level + 1L
+                showSubtree(frame[[id, 1L]], level)
+                showSubtree(frame[[id, 2L]], level)
+            }
         },
+
+        # ----- Special Methods -----
         updateCollapse = function() {
             ids <- frame[cursor, 1L:2L]
 
-            if (any(is.na(ids))) {
+            if (isLeaf()) {
                 leaf_risk <<- risk
                 leaf_count <<- 1L
                 collapse <<- Inf
@@ -231,6 +251,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
                 collapse <<- (risk - leaf_risk) / (leaf_count - 1L)
             }
         },
+
         finalizeCollapse = function() {
             # NOTE: Multiple best collapse points are not handled
             # simultaneously, but rather by consecutive iterations. This is 
@@ -265,13 +286,11 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             leaf_risk_ <<- final_leaf_risk
             leaf_count_ <<- final_leaf_count
         },
+
         prune = function(cutoff) {
             # Walk down the tree, pruning anything whose collapse value doesn't
             # exceed cutoff.
-            ids <- frame[cursor, 1L:2L]
-            if (any(is.na(ids))) {
-                # This node is a leaf, so do nothing.
-            } else {
+            if (!isLeaf()) {
                 if (collapse < cutoff) {
                     # This branch gets pruned, so make this node a leaf.
                     removeLeft()
@@ -289,18 +308,9 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
                 # TODO: the leaf risks and leaf counts should be updated here.
             }
         },
-        showSubtree = function(id, level = 0L) {
-            if (!is.na(id)) {
-                str <- paste0(variable[[id]], ' ', point[[id]], ' ',
-                              decision_[[id]], ' ', collapse_[[id]])
-                cat(rep.int('  ', level), id, ') ', str, '\n', sep = '')
-                level <- level + 1L
-                showSubtree(frame[[id, 1L]], level)
-                showSubtree(frame[[id, 2L]], level)
-            }
-        },
+
         predict = function() {
         }
-    )
+    ) # end methods
 )
 
