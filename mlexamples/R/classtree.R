@@ -33,9 +33,7 @@ makeTree <- function(data, f, min_split) {
 makeSubtree <- function(data, f, min_split, min_bucket = min_split %/% 3, 
                         tree) {
     details <- splitDetails(data[1])
-    if (missing(tree)) {
-        tree <- ClassTree(length(details$n))
-    }
+    if (missing(tree)) tree <- ClassTree(length(details$n))
     tree$decision <- details$decision
     tree$n <- details$n
 
@@ -145,7 +143,11 @@ costEntropy <- function(y) {
 
 ClassTree = setRefClass('ClassTree', contains = c('Tree'),
     fields = list(
-        variable = 'character',
+        variable_ = 'character',
+        variable = function(x) {
+            if (missing(x)) variable_[[cursor]]
+            else variable_[[cursor]] <<- x
+        },
         point = 'numeric',
         decision_ = 'character',
         decision = function(x) {
@@ -182,15 +184,15 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         initialize = function(classes = 0L, ...) {
             callSuper(n_ = matrix(NA_integer_, 0L, classes), ...)
             # Set values.
-            variable[[1L]] <<- NA_character_
+            variable <<- NA_character_
             point[[1L]] <<- NA_real_
         },
 
         # ----- Memory Allocation -----
         increaseReserve = function() {
             callSuper()
-            new_length <- length(variable) + mem_reserve
-            length(variable) <<- new_length
+            new_length <- length(variable_) + mem_reserve
+            length(variable_) <<- new_length
             length(point) <<- new_length
             length(decision_) <<- new_length
             length(risk_) <<- new_length
@@ -205,14 +207,14 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             addLeft()
             addRight()
             ids <- frame[cursor, 1L:2L]
-            variable[ids] <<- variable
+            variable_[ids] <<- variable
             point[ids] <<- point
         },
 
         # ----- Node Deletion -----
         removeNode = function() {
             callSuper()
-            variable <<- variable[-cursor]
+            variable_ <<- variable_[-cursor]
             point <<- point[-cursor]
             decision_ <<- decision_[-cursor]
             risk_ <<- risk_[-cursor]
@@ -225,7 +227,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         # ----- Display -----
         showSubtree = function(id, level = 0L) {
             if (!is.na(id)) {
-                str <- paste0(variable[[id]], ' ', point[[id]], ' ',
+                str <- paste0(variable_[[id]], ' ', point[[id]], ' ',
                               decision_[[id]], ' ', collapse_[[id]])
                 cat(rep.int('  ', level), id, ') ', str, '\n', sep = '')
                 level <- level + 1L
@@ -303,10 +305,28 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
                     goUp()
                 }
                 # TODO: the leaf risks and leaf counts should be updated here.
+                # This is a minor point, and only need to be fixed before
+                # release.
             }
         },
 
-        predict = function() {
+        predict = function(data, cutoff = 0L) {
+            ids <- new_ids <- rep.int(1L, nrow(data))
+            repeat {
+                new_ids <- frame[ids, 1L]
+                targets <- cbind(seq_len(nrow(data)), 
+                                 match(variable_[new_ids], colnames(data))
+                                 )
+                new_ids <- ifelse(data[targets] < point[new_ids],
+                                  new_ids, 
+                                  frame[ids, 2L]
+                                  )
+                new_ids <- ifelse(is.na(new_ids), ids, new_ids)
+                new_ids <- ifelse(collapse_[ids] < cutoff, ids, new_ids)
+                if (all(new_ids == ids)) break
+                else ids <- new_ids
+            }
+            return(decision_[ids])
         }
     ) # end methods
 )
