@@ -2,209 +2,391 @@
 # Author: Nick Ulle
 
 #' @include tree.R
+#' @include cv.R
 NULL
 
 #' Build A Classification Tree
 #'
-#' This function builds a classification tree from data, following techniques
-#' described in Hastie, et al, among others. Nominal covariates and pruning via
-#' cross-validation are not yet supported.
+#' This function builds a classification tree from data, following the CART
+#' algorithm described in "Classification and Regression Trees". Regression 
+#' trees, missing data, and nominal covariates are not yet supported.
 #'
-#' @param data a data.frame whose first column is the categorical response
-#' and whose other columns are ordinal covariates.
-#' @param f an impurity function. See \code{impurityError} for details.
-#' @param min_split minimum number of observations required to make a split.
-#' @return an S4 object of class Tree, representing the classification tree.
+#' @param formula a formula, with a response and covariates.
+#' @param data an optional data.frame whose columns are variables named in the
+#' formula.
+#' @param build_risk a function, to be used for estimating risk when building 
+#' the tree. 
+#' @param prune_risk a function, to be used for estimating risk when pruning 
+#' the tree.
+#' @param min_split the minimum number of observations required to make a split.
+#' @param min_bucket the minimum number of observations required in each leaf.
+#' @param folds the number of folds to be used in cross-validation of the
+#' cost-complexity parameter. If this is not positive, cross-validation will be
+#' skipped.
+#' @return a reference class ClassTree, representing the classification tree.
+#'
 #' @examples
-#' makeTree(iris[c(5, 1:4)], impurityGini, 50)
+#' # Build a classification tree for Fisher's iris data using defaults.
+#' makeTree(Species ~ ., iris)
 #'
-#' makeTree(InsectSprays[c(2, 1)], impurityError, 25)
+#' # Build a classification tree for the insect spray data using
+#' # misclassification rate instead of Gini impurity, and require at least 25
+#' # observations in every split node.
+#' makeTree(spray ~ count, InsectSprays, build_risk = costError, 
+#'          min_split = 25L)
+#'
 #' @export
-makeTree <- function(data, f, min_split) {
-    details <- f(data[1])
-    tree <- Tree(Split('root', NA, details$n, NA_real_, details$decision,
-                       details$error))
+makeTree <- function(formula, data, 
+                     build_risk = costGini, prune_risk = costError, 
+                     min_split = 20L, min_bucket = min_split %/% 3,
+                     folds = 10L) {
+    call_signature <- match.call(expand.dots = FALSE)
+    m <- match(c('formula', 'data'), names(call_signature))
+    call_signature <- call_signature[c(1L, m)]
+    call_signature[[1L]] <- as.name('model.frame')
+    data <- eval(call_signature, parent.frame())
 
-    if (details$n >= min_split) {
-        children <- makeSplit(data, f, min_split)
-        tree <- setLeft(tree, children$left)
-        tree <- setRight(tree, children$right)
+    risk <- list(build_risk = build_risk, prune_risk = prune_risk)
+    tree <- makeSubtree(data, risk, min_split)
+    tree$finalizeCollapse()
+
+    if (folds > 0L) {
+        # Cross-validate.
+        trainTree <- function(data) {
+            tree <- makeSubtree(data, risk, min_split)
+            tree$finalizeCollapse()
+            return(tree)
+        }
+    
+        tuning <- sort(tree$getTuning(), decreasing = FALSE)
+        cv <- crossValidate(data, trainTree, validateTree, tuning, folds)
+        id <- which.min(cv[2L, , drop = FALSE])
+        # Use the "one standard error" rule.
+        cv <- cv[, cv[2L, ] < cv[2L, id] + cv[3L, id], drop = FALSE]
+        tuning <- cv[[1L, 1L]]
+    
+        # Prune tree.
+        tree$prune(tuning)
     }
+
     return(tree)
 }
 
-makeSplit <- function(data, f, min_split) {
-    # TODO: clean up this function.
-    best <- bestSplit(data[-1], data[1], f)
+# Makes a subtree given the data.
+makeSubtree <- function(data, risk, 
+                        min_split = 20L, min_bucket = min_split %/% 3, 
+                        tree) {
+    details <- splitDetails(data[1L])
+    if (missing(tree)) tree <- ClassTree(length(details$n))
+    tree$decision <- details$decision
+    tree$n <- details$n
 
-    # Sets up the left subtree.
-    left <- Tree(best$left)
-    data_left <- data[data[best$left@split_var] <= best$left@split_pt, ,
-                      drop = FALSE]
-    n_left <- nrow(data_left)
+    # Decide if we should split, and do splitting stuff.
+    # In any iteration we need to check that the parent is big enough to split,
+    # and that the children are big enough to keep the split.
+    if(sum(tree$n) >= min_split) {
+        split_pt <- bestSplit(data[-1L], data[1L], risk$build_risk)
+        split_var <- names(split_pt)
 
-    if (n_left >= min_split) {
-        split <- makeSplit(data_left, f, min_split)
-        left <- setLeft(left, split$left)
-        left <- setRight(left, split$right)
+        split_data <- factor(data[split_var] < split_pt, c(TRUE, FALSE))
+        split_data <- split(data, split_data)
+        split_n <- vapply(split_data, nrow, NA_integer_)
+        
+        if (all(split_n >= min_bucket)) {
+            # Reaching this point means this node is a branch.
+            tree$addSplit(split_var, split_pt)
+
+            tree$goLeft()
+            makeSubtree(split_data[[1L]], risk, min_split, min_bucket, tree)
+            tree$goUp()
+
+            tree$goRight()
+            makeSubtree(split_data[[2L]], risk, min_split, min_bucket, tree)
+            tree$goUp()
+        }
     }
 
-    # Sets up the right subtree.
-    right <- Tree(best$right)
-    data_right <- data[data[best$right@split_var] > best$right@split_pt, ,
-                       drop = FALSE]
-    n_right <- nrow(data_right)
-
-    if (n_right >= min_split) {
-        split <- makeSplit(data_right, f, min_split)
-        right <- setLeft(right, split$left)
-        right <- setRight(right, split$right)
-    }
-    list(left = left, right = right)
+    tree$risk <- risk$prune_risk(data[1L]) * sum(tree$n)
+    tree$updateCollapse()
+    return(tree)
 }
 
 # Finds best split among all covariates.
-bestSplit <- function(x, y, f) {
+bestSplit <- function(x, y, risk) {
     # Gets pairwise midpoints of sorted, unique covariate values.
     # TODO: add handling for nominal covariate values.
-    # TODO: move this up the call stack (it only needs to be done once).
+    # TODO: move sorting up the call stack (it only needs to be done once).
     n <- nrow(y)
     x_mid <- sapply(x, sort)
     x_mid <- (x_mid[-n, , drop = FALSE] + x_mid[-1, , drop = FALSE]) / 2
-    x_mid <- data.frame(apply(x_mid, 2, unique))
+    x_mid <- lapply(data.frame(x_mid), unique)
 
     # Gets the best split.
-    splits <- mapply(bestSplitWithin, x_mid, x, MoreArgs = list(y, f))
+    splits <- mapply(bestSplitWithin, x_mid, x, MoreArgs = list(y, risk))
     split_pt <- splits[2, which.min(splits[1, ])]
 
-    # Sets up the return value.
-    split_var <- names(split_pt)
-    y_split <- factor(x[split_var] < split_pt, c(TRUE, FALSE),
-                      c('left', 'right'))
-    y_split <- split(y, y_split)
-    y_split <- sapply(y_split, f)
-
-    left <- Split(split_var, split_pt, y_split[[4, 1]], NA_real_, 
-                  y_split[[1, 1]], y_split[[2, 1]])
-    right <- Split(split_var, split_pt, y_split[[4, 2]], NA_real_,
-                   y_split[[1, 2]], y_split[[2, 2]])
-    list(left = left, right = right)
+    return(split_pt)
 }
 
 # Finds best split within one covariate.
-bestSplitWithin <- function(x_mid, x, y, f) {
-    splits <- sapply(x_mid,
-                     function(x_) {
-                         split <- numeric(2)
-                         l <- y[x < x_, , drop = FALSE]
-                         r <- y[x >= x_, , drop = FALSE]
-                         l_impurity <- f(l)$impurity
-                         r_impurity <- f(r)$impurity
-
-                         split[[1]] <- weighted.mean(c(l_impurity, r_impurity),
-                                                     c(nrow(l), nrow(r))
-                                                     )
-                         split[[2]] <- x_
-                         return(split)
-                        })
-    splits[, which.min(splits[1, ])]
+bestSplitWithin <- function(x_mid, x, y, risk) {
+    splits <- vapply(x_mid,
+                     function(x_) { 
+                         y_split <- factor(x < x_, c(TRUE, FALSE))
+                         y_split <- split(y, y_split)
+                         y_split <- vapply(y_split, 
+                                           function(y_) c(risk(y_), nrow(y_)),
+                                           numeric(2))
+                         c(sum(y_split[1, ] * y_split[2, ]), x_)
+                        }, numeric(2))
+    splits[, which.min(splits[1, ])] / c(nrow(y), 1)
 }
 
-# TODO: separate node 'stats' computation from node impurity computation.
-# Prototype for separation of computing node 'stats' and node impurity.
-proportions <- function(y) {
-    y <- table(y)
-    proportions <- drop(as.matrix(prop.table(y)))
-    y_max <- which.max(proportions)
-    # Handles the case where every proportion is NaN, i.e., y is empty.
-    if (length(y_max) == 0) y_max <- 1L
-    decision <- names(proportions)[[y_max]]
-    list(n = sum(y), decision = decision, proportions = proportions)
-}
-
-#' Impurity Functions
+#' Retrieve Split Details
 #'
-#' These functions compute the impurity of a node.
+#' \code{splitDetails} retrieves the number of elements and the decision
+#' for a split.
+#' 
+#' @param y a factor, containing the true classes of the split observations.
+#' @return a list, containing the name of the majority class and the number
+#' of observations in each class.
+splitDetails <- function(y) {
+    n <- c(table(y))
+    decision <- names(which.max(n))
+    list(decision = decision, n = n)
+}
+
+#' Cost Functions
 #'
-#' @param y a single column data.frame or vector of categorical response values.
-#' @return a list containing the node decision, misclassification error,
-#' impurity, and size.
-#' @rdname Impurity
+#' These functions compute the cost of representing a set with its majority
+#' element.
+#'
+#' @param y a factor.
+#' @return a numeric cost.
+#' @rdname Cost
 #' @export
-impurityError <- function(y) {
-    n <- sum(table(y))
-    y_props <- prop.table(table(y))
-    y_max <- which.max(y_props)
-    if (length(y_max) == 0) {
-        # Every proportion was NaN, i.e., y is empty.
-        decision <- names(y_props)[[1L]]
-        error <- 0
-        impurity <- 0
-    } else {
-        decision <- names(y_props)[[y_max]]
-        error <- 1 - y_props[[y_max]]
-        impurity <- error
-    }
-    list(decision = decision, error = error, impurity = impurity, n = n)
+costError <- function(y) {
+    y_prop <- prop.table(table(y))
+    cost <- if (any(is.nan(y_prop))) 0 else 1 - max(y_prop)
+    return(cost)
 }
 
-#' @rdname Impurity
+#' @rdname Cost
 #' @export
-impurityGini <- function(y) {
-    n <- sum(table(y))
-    y_props <- prop.table(table(y))
-    y_max <- which.max(y_props)
-    if (length(y_max) == 0) {
-        # Every proportion was NaN, i.e., y is empty.
-        decision <- names(y_props)[[1L]]
-        error <- 0
-        impurity <- 0
-    } else {
-        decision <- names(y_props)[[y_max]]
-        error <- 1 - y_props[[y_max]]
-        impurity <- sum(y_props * (1 - y_props))
-    }
-    list(decision = decision, error = error, impurity = impurity, n = n)
+costGini <- function(y) {
+    y_prop <- prop.table(table(y))
+    cost <- if (any(is.nan(y_prop))) 0 else sum(y_prop * (1 - y_prop))
+    return(cost)
 }
 
-#' @rdname Impurity
+#' @rdname Cost
 #' @export
-impurityEntropy <- function(y) {
-    n <- sum(table(y))
-    y_props <- prop.table(table(y))
-    y_max <- which.max(y_props)
-    if (length(y_max) == 0) {
-        # Every proportion was NaN, i.e., y is empty.
-        decision <- names(y_props)[[1L]]
-        error <- 0
-        impurity <- 0
-    } else {
-        decision <- names(y_props)[[y_max]]
-        error <- 1 - y_props[[y_max]]
-        impurity <- -sum(y_props * log(y_props))
-        if (is.nan(impurity)) impurity <- 0
-    }
-    list(decision = decision, error = error, impurity = impurity, n = n)
+costEntropy <- function(y) {
+    y_prop <- prop.table(table(y))
+    cost <- -y_prop * log(y_prop)
+    # Handles the case where y_prop contains zero or NaN.
+    cost <- sum(ifelse(is.nan(cost), 0, cost))
+    return(cost)
 }
 
-setClass('Split',
-         representation(split_var = 'character',
-                        split_pt = 'ANY',
-                        n = 'numeric',
-                        complexity = 'numeric',
-                        decision = 'character',
-                        error = 'numeric'
-                        )
-         )
-
-Split <- function(split_var, split_pt, n, complexity, decision, error) {
-    new('Split', split_var = split_var, split_pt = split_pt, n = n,
-        complexity = complexity, decision = decision, error = error)
+# Cross-validation functions
+validateTree <- function(tuning, tree, test_set) {
+    pred <- tree$predict(test_set, tuning)
+    1 - sum(test_set[[1L]] == pred) / nrow(test_set)
 }
 
-setMethod('as.character', 'Split',
-          function(x, ...) {
-              paste(x@split_var, x@split_pt, x@n, x@decision, 
-                    round(x@error, 4))
-          })
+ClassTree = setRefClass('ClassTree', contains = c('Tree'),
+    fields = list(
+        variable_ = 'character',
+        variable = function(x) {
+            if (missing(x)) variable_[[cursor]]
+            else variable_[[cursor]] <<- x
+        },
+        point = 'numeric',
+        decision_ = 'character',
+        decision = function(x) {
+            if (missing(x)) decision_[[cursor]]
+            else decision_[[cursor]] <<- x
+        },
+        risk_ = 'numeric',
+        risk = function(x) {
+            if (missing(x)) risk_[[cursor]]
+            else risk_[[cursor]] <<- x
+        },
+        leaf_risk_ = 'numeric',
+        leaf_risk = function(x) {
+            if (missing(x)) leaf_risk_[[cursor]]
+            else leaf_risk_[[cursor]] <<- x
+        },
+        leaf_count_ = 'integer',
+        leaf_count = function(x) {
+            if (missing(x)) leaf_count_[[cursor]]
+            else leaf_count_[[cursor]] <<- x
+        },
+        collapse_ = 'numeric',
+        collapse = function(x) {
+            if (missing(x)) collapse_[[cursor]]
+            else collapse_[[cursor]] <<- x
+        },
+        n_ = 'matrix',
+        n = function(x) {
+            if (missing(x)) n_[cursor, ]
+            else n_[cursor, ] <<- x
+        }
+    ),
+    methods = list(
+        initialize = function(classes = 0L, ...) {
+            callSuper(n_ = matrix(NA_integer_, 0L, classes), ...)
+            # Set values.
+            variable <<- NA_character_
+            point[[1L]] <<- NA_real_
+        },
+
+        # ----- Memory Allocation -----
+        increaseReserve = function() {
+            callSuper()
+            new_length <- length(variable_) + mem_reserve
+            length(variable_) <<- new_length
+            length(point) <<- new_length
+            length(decision_) <<- new_length
+            length(risk_) <<- new_length
+            length(leaf_risk_) <<- new_length
+            length(leaf_count_) <<- new_length
+            length(collapse_) <<- new_length
+            n_ <<- rbind(n_, matrix(NA_integer_, mem_reserve, dim(n_)[[2L]]))
+        },
+
+        # ----- Node Creation -----
+        addSplit = function(variable, point) {
+            addLeft()
+            addRight()
+            ids <- frame[cursor, 1L:2L]
+            variable_[ids] <<- variable
+            point[ids] <<- point
+        },
+
+        # ----- Node Deletion -----
+        removeNode = function() {
+            callSuper()
+            variable_ <<- variable_[-cursor]
+            point <<- point[-cursor]
+            decision_ <<- decision_[-cursor]
+            risk_ <<- risk_[-cursor]
+            leaf_risk_ <<- leaf_risk_[-cursor]
+            leaf_count_ <<- leaf_count_[-cursor]
+            collapse_ <<- collapse_[-cursor]
+            n_ <<- n_[-cursor, ]
+        },
+
+        # ----- Display -----
+        showSubtree = function(id, level = 0L) {
+            if (!is.na(id)) {
+                str <- paste0(variable_[[id]], ' ', point[[id]], ' ',
+                              decision_[[id]], ' ', collapse_[[id]])
+                cat(rep.int('  ', level), id, ') ', str, '\n', sep = '')
+                level <- level + 1L
+                showSubtree(frame[[id, 1L]], level)
+                showSubtree(frame[[id, 2L]], level)
+            }
+        },
+
+        # ----- Special Methods -----
+        getTuning = function() {
+            collapse_[is.finite(collapse_)]
+        },
+
+        updateCollapse = function() {
+            ids <- frame[cursor, 1L:2L]
+
+            if (isLeaf()) {
+                leaf_risk <<- risk
+                leaf_count <<- 1L
+                collapse <<- Inf
+            } else {
+                leaf_risk <<- sum(leaf_risk_[ids])
+                leaf_count <<- sum(leaf_count_[ids])
+                collapse <<- (risk - leaf_risk) / (leaf_count - 1L)
+            }
+        },
+
+        finalizeCollapse = function() {
+            # NOTE: Multiple best collapse points are not handled
+            # simultaneously, but rather by consecutive iterations. This is 
+            # also how the algorithm outlined by Breiman operates.
+
+            # Find minimum collapse node, prune, and update repeatedly.
+            final_collapse <- rep(Inf, next_id - 1L)
+            final_leaf_risk <- leaf_risk_
+            final_leaf_count <- leaf_count_
+
+            cursor <<- which.min(collapse_)
+            while (cursor > 1L) {
+                # Store the collapse value.
+                final_collapse[[cursor]] <- collapse
+                # Make this node have risk of a leaf.
+                leaf_risk <<- risk
+                leaf_count <<- 1L
+                collapse <<- Inf
+                # Update ancestors.
+                while(cursor > 1L) {
+                    goUp()
+                    updateCollapse()
+                }
+                # Get new best collapse point.
+                cursor <<- which.min(collapse_)
+            }
+
+            final_collapse[[cursor]] <- collapse
+            final_collapse <- pmax.int(final_collapse, 0L)
+            collapse_[seq_along(final_collapse)] <<- final_collapse
+            # TODO: possibly redesign updateCollapse() so that storing
+            # leaf_risk_ and leaf_count_ is not necessary.
+            leaf_risk_ <<- final_leaf_risk
+            leaf_count_ <<- final_leaf_count
+        },
+
+        prune = function(cutoff) {
+            # Walk down the tree, pruning anything whose collapse value doesn't
+            # exceed cutoff.
+            if (!isLeaf()) {
+                if (collapse <= cutoff) {
+                    # This branch gets pruned, so make this node a leaf.
+                    removeLeft()
+                    removeRight()
+                } else {
+                    # This branch does not get pruned, so descend.
+                    goLeft()
+                    prune(cutoff)
+                    goUp()
+
+                    goRight()
+                    prune(cutoff)
+                    goUp()
+                }
+                # TODO: the leaf risks and leaf counts should be updated here.
+                # This is a minor point, and only need to be fixed before
+                # release.
+            }
+        },
+
+        predict = function(data, cutoff = 0L) {
+            ids <- new_ids <- rep.int(1L, nrow(data))
+            repeat {
+                new_ids <- frame[ids, 1L]
+                targets <- cbind(seq_len(nrow(data)), 
+                                 match(variable_[new_ids], colnames(data))
+                                 )
+                new_ids <- ifelse(data[targets] < point[new_ids],
+                                  new_ids, 
+                                  frame[ids, 2L]
+                                  )
+                new_ids <- ifelse(is.na(new_ids), ids, new_ids)
+                new_ids <- ifelse(collapse_[ids] <= cutoff, ids, new_ids)
+                if (all(new_ids == ids)) break
+                else ids <- new_ids
+            }
+            return(decision_[ids])
+        }
+    ) # end methods
+)
 

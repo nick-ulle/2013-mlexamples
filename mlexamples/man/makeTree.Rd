@@ -2,32 +2,51 @@
 \alias{makeTree}
 \title{Build A Classification Tree}
 \usage{
-  makeTree(data, f, min_split)
+  makeTree(formula, data, build_risk = costGini,
+    prune_risk = costError, min_split = 20L,
+    min_bucket = min_split\%/\%3, folds = 10L)
 }
 \arguments{
-  \item{data}{a data.frame whose first column is the
-  categorical response and whose other columns are ordinal
+  \item{formula}{a formula, with a response and
   covariates.}
 
-  \item{f}{an impurity function. See \code{impurityError}
-  for details.}
+  \item{data}{an optional data.frame whose columns are
+  variables named in the formula.}
 
-  \item{min_split}{minimum number of observations required
-  to make a split.}
+  \item{build_risk}{a function, to be used for estimating
+  risk when building the tree.}
+
+  \item{prune_risk}{a function, to be used for estimating
+  risk when pruning the tree.}
+
+  \item{min_split}{the minimum number of observations
+  required to make a split.}
+
+  \item{min_bucket}{the minimum number of observations
+  required in each leaf.}
+
+  \item{folds}{the number of folds to be used in
+  cross-validation of the cost-complexity parameter. If
+  this is not positive, cross-validation will be skipped.}
 }
 \value{
-  an S4 object of class Tree, representing the
+  a reference class ClassTree, representing the
   classification tree.
 }
 \description{
   This function builds a classification tree from data,
-  following techniques described in Hastie, et al, among
-  others. Nominal covariates and pruning via
-  cross-validation are not yet supported.
+  following the CART algorithm described in "Classification
+  and Regression Trees". Regression trees, missing data,
+  and nominal covariates are not yet supported.
 }
 \examples{
-makeTree(iris[c(5, 1:4)], impurityGini, 50)
+# Build a classification tree for Fisher's iris data using defaults.
+makeTree(Species ~ ., iris)
 
-makeTree(InsectSprays[c(2, 1)], impurityError, 25)
+# Build a classification tree for the insect spray data using
+# misclassification rate instead of Gini impurity, and require at least 25
+# observations in every split node.
+makeTree(spray ~ count, InsectSprays, build_risk = costError,
+         min_split = 25L)
 }
 

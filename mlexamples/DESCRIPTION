@@ -9,4 +9,5 @@ Description: This package provides various machine learning algorithms
     implemented in pure R, for testing performance of compiled R code.
 Collate:
     'tree.R'
+    'cv.R'
     'classtree.R'
