@@ -32,8 +32,6 @@ crossValidate <- function(data, tuning, train, validate, folds = 10L) {
     # Finally, compute estimates and standard errors.
     estimate <- rowMeans(risk)
     std_err <- sqrt(apply(risk, 1L, var) / folds)
-    structure(rbind(estimate, std_err), 
-              dimnames = list(c('Estimate', 'Std. Error'), tuning)
-              )
+    rbind('Parameter' = tuning, 'Estimate' = estimate, 'Std. Error' = std_err)
 }
 

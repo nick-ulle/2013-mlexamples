@@ -279,6 +279,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             }
 
             final_collapse[[cursor]] <- collapse
+            final_collapse <- pmax.int(final_collapse, 0L)
             collapse_[seq_along(final_collapse)] <<- final_collapse
             # TODO: possibly redesign updateCollapse() so that storing
             # leaf_risk_ and leaf_count_ is not necessary.
@@ -290,7 +291,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             # Walk down the tree, pruning anything whose collapse value doesn't
             # exceed cutoff.
             if (!isLeaf()) {
-                if (collapse < cutoff) {
+                if (collapse <= cutoff) {
                     # This branch gets pruned, so make this node a leaf.
                     removeLeft()
                     removeRight()
@@ -322,7 +323,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
                                   frame[ids, 2L]
                                   )
                 new_ids <- ifelse(is.na(new_ids), ids, new_ids)
-                new_ids <- ifelse(collapse_[ids] < cutoff, ids, new_ids)
+                new_ids <- ifelse(collapse_[ids] <= cutoff, ids, new_ids)
                 if (all(new_ids == ids)) break
                 else ids <- new_ids
             }
