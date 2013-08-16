@@ -2,6 +2,7 @@
 # Author: Nick Ulle
 
 #' @include tree.R
+#' @include cv.R
 NULL
 
 #' Build A Classification Tree
@@ -24,8 +25,23 @@ makeTree <- function(data, f, min_split) {
     f <- list(cost = f, complexity = costError)
     tree <- makeSubtree(data, f,  min_split)
     tree$finalizeCollapse()
-    # Do cross-validation stuff.
-    #tree$prune(alpha_cv)
+
+    # Cross-validate.
+    trainTree <- function(data) {
+        tree <- makeSubtree(data, f, min_split)
+        tree$finalizeCollapse()
+        return(tree)
+    }
+
+    tuning <- sort(tree$getTuning(), decreasing = FALSE)
+    cv <- crossValidate(data, tuning, trainTree, validateTree)
+    id <- which.min(cv[2L, , drop = FALSE])
+    # Use the "one standard error" rule.
+    cv <- cv[, cv[2L, ] < cv[2L, id] + cv[3L, id], drop = FALSE]
+    tuning <- cv[[1L, 1L]]
+
+    # Prune tree.
+    tree$prune(tuning)
     return(tree)
 }
 
@@ -141,6 +157,12 @@ costEntropy <- function(y) {
     return(cost)
 }
 
+# Cross-validation functions
+validateTree <- function(tuning, tree, test_set) {
+    pred <- tree$predict(test_set, tuning)
+    1 - sum(test_set[[1L]] == pred) / nrow(test_set)
+}
+
 ClassTree = setRefClass('ClassTree', contains = c('Tree'),
     fields = list(
         variable_ = 'character',
@@ -237,6 +259,10 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         },
 
         # ----- Special Methods -----
+        getTuning = function() {
+            collapse_[is.finite(collapse_)]
+        },
+
         updateCollapse = function() {
             ids <- frame[cursor, 1L:2L]
 
