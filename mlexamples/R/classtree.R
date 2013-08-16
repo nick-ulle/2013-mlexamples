@@ -7,60 +7,74 @@ NULL
 
 #' Build A Classification Tree
 #'
-#' This function builds a classification tree from data, following techniques
-#' described in Hastie, et al, among others. Nominal covariates and pruning via
-#' cross-validation are not yet supported.
+#' This function builds a classification tree from data, following the CART
+#' algorithm described in "Classification and Regression Trees". Regression 
+#' trees, missing data, and nominal covariates are not yet supported.
 #'
 #' @param formula a formula, with a response and covariates.
 #' @param data an optional data.frame whose columns are variables named in the
 #' formula.
-#' @param build_risk risk a function, to be used for estimating risk when
-#' building the tree. 
-#' @param prune_risk risk a function, to be used for estimating risk when
-#' pruning the tree.
+#' @param build_risk a function, to be used for estimating risk when building 
+#' the tree. 
+#' @param prune_risk a function, to be used for estimating risk when pruning 
+#' the tree.
 #' @param min_split the minimum number of observations required to make a split.
 #' @param min_bucket the minimum number of observations required in each leaf.
+#' @param folds the number of folds to be used in cross-validation of the
+#' cost-complexity parameter. If this is not positive, cross-validation will be
+#' skipped.
 #' @return a reference class ClassTree, representing the classification tree.
+#'
 #' @examples
+#' # Build a classification tree for Fisher's iris data using defaults.
 #' makeTree(Species ~ ., iris)
 #'
+#' # Build a classification tree for the insect spray data using
+#' # misclassification rate instead of Gini impurity, and require at least 25
+#' # observations in every split node.
 #' makeTree(spray ~ count, InsectSprays, build_risk = costError, 
 #'          min_split = 25L)
+#'
 #' @export
 makeTree <- function(formula, data, 
                      build_risk = costGini, prune_risk = costError, 
-                     min_split = 20, min_bucket = min_split %/% 3) {
-    call_sign <- match.call(expand.dots = FALSE)
-    m <- match(c('formula', 'data'), names(call_sign))
-    call_sign <- call_sign[c(1L, m)]
-    call_sign[[1L]] <- as.name('model.frame')
-    data <- eval(call_sign, parent.frame())
+                     min_split = 20L, min_bucket = min_split %/% 3,
+                     folds = 10L) {
+    call_signature <- match.call(expand.dots = FALSE)
+    m <- match(c('formula', 'data'), names(call_signature))
+    call_signature <- call_signature[c(1L, m)]
+    call_signature[[1L]] <- as.name('model.frame')
+    data <- eval(call_signature, parent.frame())
 
-    f <- list(cost = build_risk, complexity = prune_risk)
-    tree <- makeSubtree(data, f,  min_split)
+    risk <- list(build_risk = build_risk, prune_risk = prune_risk)
+    tree <- makeSubtree(data, risk, min_split)
     tree$finalizeCollapse()
 
-    # Cross-validate.
-    trainTree <- function(data) {
-        tree <- makeSubtree(data, f, min_split)
-        tree$finalizeCollapse()
-        return(tree)
+    if (folds > 0L) {
+        # Cross-validate.
+        trainTree <- function(data) {
+            tree <- makeSubtree(data, risk, min_split)
+            tree$finalizeCollapse()
+            return(tree)
+        }
+    
+        tuning <- sort(tree$getTuning(), decreasing = FALSE)
+        cv <- crossValidate(data, trainTree, validateTree, tuning, folds)
+        id <- which.min(cv[2L, , drop = FALSE])
+        # Use the "one standard error" rule.
+        cv <- cv[, cv[2L, ] < cv[2L, id] + cv[3L, id], drop = FALSE]
+        tuning <- cv[[1L, 1L]]
+    
+        # Prune tree.
+        tree$prune(tuning)
     }
 
-    tuning <- sort(tree$getTuning(), decreasing = FALSE)
-    cv <- crossValidate(data, tuning, trainTree, validateTree)
-    id <- which.min(cv[2L, , drop = FALSE])
-    # Use the "one standard error" rule.
-    cv <- cv[, cv[2L, ] < cv[2L, id] + cv[3L, id], drop = FALSE]
-    tuning <- cv[[1L, 1L]]
-
-    # Prune tree.
-    tree$prune(tuning)
     return(tree)
 }
 
 # Makes a subtree given the data.
-makeSubtree <- function(data, f, min_split, min_bucket = min_split %/% 3, 
+makeSubtree <- function(data, risk, 
+                        min_split = 20L, min_bucket = min_split %/% 3, 
                         tree) {
     details <- splitDetails(data[1L])
     if (missing(tree)) tree <- ClassTree(length(details$n))
@@ -71,7 +85,7 @@ makeSubtree <- function(data, f, min_split, min_bucket = min_split %/% 3,
     # In any iteration we need to check that the parent is big enough to split,
     # and that the children are big enough to keep the split.
     if(sum(tree$n) >= min_split) {
-        split_pt <- bestSplit(data[-1L], data[1L], f$cost)
+        split_pt <- bestSplit(data[-1L], data[1L], risk$build_risk)
         split_var <- names(split_pt)
 
         split_data <- factor(data[split_var] < split_pt, c(TRUE, FALSE))
@@ -83,22 +97,22 @@ makeSubtree <- function(data, f, min_split, min_bucket = min_split %/% 3,
             tree$addSplit(split_var, split_pt)
 
             tree$goLeft()
-            makeSubtree(split_data[[1L]], f, min_split, min_bucket, tree)
+            makeSubtree(split_data[[1L]], risk, min_split, min_bucket, tree)
             tree$goUp()
 
             tree$goRight()
-            makeSubtree(split_data[[2L]], f, min_split, min_bucket, tree)
+            makeSubtree(split_data[[2L]], risk, min_split, min_bucket, tree)
             tree$goUp()
         }
     }
 
-    tree$risk <- f$complexity(data[1L]) * sum(tree$n)
+    tree$risk <- risk$prune_risk(data[1L]) * sum(tree$n)
     tree$updateCollapse()
     return(tree)
 }
 
 # Finds best split among all covariates.
-bestSplit <- function(x, y, f) {
+bestSplit <- function(x, y, risk) {
     # Gets pairwise midpoints of sorted, unique covariate values.
     # TODO: add handling for nominal covariate values.
     # TODO: move sorting up the call stack (it only needs to be done once).
@@ -108,20 +122,20 @@ bestSplit <- function(x, y, f) {
     x_mid <- lapply(data.frame(x_mid), unique)
 
     # Gets the best split.
-    splits <- mapply(bestSplitWithin, x_mid, x, MoreArgs = list(y, f))
+    splits <- mapply(bestSplitWithin, x_mid, x, MoreArgs = list(y, risk))
     split_pt <- splits[2, which.min(splits[1, ])]
 
     return(split_pt)
 }
 
 # Finds best split within one covariate.
-bestSplitWithin <- function(x_mid, x, y, f) {
+bestSplitWithin <- function(x_mid, x, y, risk) {
     splits <- vapply(x_mid,
                      function(x_) { 
                          y_split <- factor(x < x_, c(TRUE, FALSE))
                          y_split <- split(y, y_split)
-                         y_split <- vapply(y_split,
-                                           function(y_) c(f(y_), nrow(y_)),
+                         y_split <- vapply(y_split, 
+                                           function(y_) c(risk(y_), nrow(y_)),
                                            numeric(2))
                          c(sum(y_split[1, ] * y_split[2, ]), x_)
                         }, numeric(2))
