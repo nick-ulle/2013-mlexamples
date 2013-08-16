@@ -11,18 +11,32 @@ NULL
 #' described in Hastie, et al, among others. Nominal covariates and pruning via
 #' cross-validation are not yet supported.
 #'
-#' @param data a data.frame whose first column is the categorical response
-#' and whose other columns are ordinal covariates.
-#' @param f an impurity function. See \code{impurityError} for details.
-#' @param min_split minimum number of observations required to make a split.
+#' @param formula a formula, with a response and covariates.
+#' @param data an optional data.frame whose columns are variables named in the
+#' formula.
+#' @param build_risk risk a function, to be used for estimating risk when
+#' building the tree. 
+#' @param prune_risk risk a function, to be used for estimating risk when
+#' pruning the tree.
+#' @param min_split the minimum number of observations required to make a split.
+#' @param min_bucket the minimum number of observations required in each leaf.
 #' @return a reference class ClassTree, representing the classification tree.
 #' @examples
-#' makeTree(iris[c(5, 1:4)], impurityGini, 50)
+#' makeTree(Species ~ ., iris)
 #'
-#' makeTree(InsectSprays[c(2, 1)], impurityError, 25)
+#' makeTree(spray ~ count, InsectSprays, build_risk = costError, 
+#'          min_split = 25L)
 #' @export
-makeTree <- function(data, f, min_split) {
-    f <- list(cost = f, complexity = costError)
+makeTree <- function(formula, data, 
+                     build_risk = costGini, prune_risk = costError, 
+                     min_split = 20, min_bucket = min_split %/% 3) {
+    call_sign <- match.call(expand.dots = FALSE)
+    m <- match(c('formula', 'data'), names(call_sign))
+    call_sign <- call_sign[c(1L, m)]
+    call_sign[[1L]] <- as.name('model.frame')
+    data <- eval(call_sign, parent.frame())
+
+    f <- list(cost = build_risk, complexity = prune_risk)
     tree <- makeSubtree(data, f,  min_split)
     tree$finalizeCollapse()
 
@@ -48,7 +62,7 @@ makeTree <- function(data, f, min_split) {
 # Makes a subtree given the data.
 makeSubtree <- function(data, f, min_split, min_bucket = min_split %/% 3, 
                         tree) {
-    details <- splitDetails(data[1])
+    details <- splitDetails(data[1L])
     if (missing(tree)) tree <- ClassTree(length(details$n))
     tree$decision <- details$decision
     tree$n <- details$n
@@ -57,7 +71,7 @@ makeSubtree <- function(data, f, min_split, min_bucket = min_split %/% 3,
     # In any iteration we need to check that the parent is big enough to split,
     # and that the children are big enough to keep the split.
     if(sum(tree$n) >= min_split) {
-        split_pt <- bestSplit(data[-1], data[1], f$cost)
+        split_pt <- bestSplit(data[-1L], data[1L], f$cost)
         split_var <- names(split_pt)
 
         split_data <- factor(data[split_var] < split_pt, c(TRUE, FALSE))
@@ -118,6 +132,10 @@ bestSplitWithin <- function(x_mid, x, y, f) {
 #'
 #' \code{splitDetails} retrieves the number of elements and the decision
 #' for a split.
+#' 
+#' @param y a factor, containing the true classes of the split observations.
+#' @return a list, containing the name of the majority class and the number
+#' of observations in each class.
 splitDetails <- function(y) {
     n <- c(table(y))
     decision <- names(which.max(n))
