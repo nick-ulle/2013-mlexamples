@@ -85,16 +85,16 @@ makeSubtree <- function(data, risk,
     # In any iteration we need to check that the parent is big enough to split,
     # and that the children are big enough to keep the split.
     if(sum(tree$n) >= min_split) {
-        split_pt <- bestSplit(data[-1L], data[1L], risk$build_risk)
-        split_var <- names(split_pt)
+        split <- bestSplit(data[-1L], data[1L], risk$build_risk)
 
-        split_data <- factor(data[split_var] < split_pt, c(TRUE, FALSE))
+        split_data <- factor(data[split$variable] %<=% split$point, 
+                             c(TRUE, FALSE))
         split_data <- split(data, split_data)
         split_n <- vapply(split_data, nrow, NA_integer_)
         
         if (all(split_n >= min_bucket)) {
             # Reaching this point means this node is a branch.
-            tree$addSplit(split_var, split_pt)
+            tree$addSplit(split$variable, split$point)
 
             tree$goLeft()
             makeSubtree(split_data[[1L]], risk, min_split, min_bucket, tree)
@@ -113,34 +113,73 @@ makeSubtree <- function(data, risk,
 
 # Finds best split among all covariates.
 bestSplit <- function(x, y, risk) {
-    # Gets pairwise midpoints of sorted, unique covariate values.
-    # TODO: add handling for nominal covariate values.
     # TODO: move sorting up the call stack (it only needs to be done once).
-    n <- nrow(y)
-    x_mid <- sapply(x, sort)
-    x_mid <- (x_mid[-n, , drop = FALSE] + x_mid[-1, , drop = FALSE]) / 2
-    x_mid <- lapply(data.frame(x_mid), unique)
+    # First determine which covariates are ordinal and which are nominal.
+    nominal <- vapply(x, is.factor, NA)
+    x_nom <- x[nominal]
+    x_ord <- x[!nominal]
 
-    # Gets the best split.
-    splits <- mapply(bestSplitWithin, x_mid, x, MoreArgs = list(y, risk))
-    split_pt <- splits[2, which.min(splits[1, ])]
+    if (ncol(x_nom) > 0L) {
+        # For each nominal covariate, make a list of all unique splits.
+        x_nom_q <- lapply(x_nom,
+                          function(x_) {
+                              x_ <- levels(x_)
+                              q <- matrix(c(TRUE, FALSE), 2L, length(x_) - 1)
+                              q <- as.matrix(expand.grid(as.data.frame(q)))
+                              q <- cbind(TRUE, q[-1L, ])
+                              dimnames(q) <- NULL
+                              q <- apply(q, 1L, function(q_) factor(x_[q_], x_))
+                              as.list(q)
+                          })
+    } else x_nom_q <- NULL
 
-    return(split_pt)
+    if (ncol(x_ord) > 0L) {
+        # For each ordinal covariate, make a sorted vector of all unique 
+        # midpoints.
+        x_ord_q <- sapply(x_ord, sort)
+        x_ord_q <- (head(x_ord_q, -1L) + tail(x_ord_q, -1L)) / 2
+        x_ord_q <- lapply(data.frame(x_ord_q), unique)
+    } else x_ord_q <- NULL
+
+    # Now combine everything and find the best split.
+    x <- c(x_nom, x_ord)
+    x_q <- c(x_nom_q, x_ord_q)
+
+    splits <- mapply(bestSplitWithin, x_q, x, MoreArgs = list(y, risk))
+    best <- which.min(splits[1, ])
+
+    list(variable = colnames(splits)[[best]], point = splits[[2L, best]])
 }
 
 # Finds best split within one covariate.
-bestSplitWithin <- function(x_mid, x, y, risk) {
-    splits <- vapply(x_mid,
+bestSplitWithin <- function(x_q, x, y, risk) {
+    splits <- vapply(x_q,
                      function(x_) { 
-                         y_split <- factor(x < x_, c(TRUE, FALSE))
+                         y_split <- factor(x %<=% x_, c(TRUE, FALSE))
                          y_split <- split(y, y_split)
                          y_split <- vapply(y_split, 
                                            function(y_) c(risk(y_), nrow(y_)),
                                            numeric(2))
-                         c(sum(y_split[1, ] * y_split[2, ]), x_)
-                        }, numeric(2))
-    splits[, which.min(splits[1, ])] / c(nrow(y), 1)
+                         sum(y_split[1, ] * y_split[2, ])
+                        }, NA_real_)
+    best <- which.min(splits)
+    list(splits[[best]] / nrow(y), x_q[[best]])
 }
+
+#' Left Branch Operator
+#'
+#' This is a binary operator which returns a logical vector indicating whether
+#' \code{x} gets sent to the left branch under the split defined by \code{y}.
+#' In particular, if \code{y} is numeric, this tests whether the elements of
+#' \code{x} are less than or equal to \code{y}, and if \code{y} is a factor,
+#' this tests whether the elements of \code{x} are in \code{y}.
+#'
+#' @param x a vector, the values to be tested.
+#' @param y a numeric value or a factor, which defines the split.
+#' @return A logical vector of the same length as \code{x}.
+'%<=%' <- function(x, y) UseMethod('%<=%', y)
+'%<=%.default' <- function(x, y) x <= y
+'%<=%.factor' <- function(x, y) x %in% y
 
 #' Retrieve Split Details
 #'
@@ -202,7 +241,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             if (missing(x)) variable_[[cursor]]
             else variable_[[cursor]] <<- x
         },
-        point = 'numeric',
+        point = 'list',
         decision_ = 'character',
         decision = function(x) {
             if (missing(x)) decision_[[cursor]]
@@ -281,7 +320,8 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         # ----- Display -----
         showSubtree = function(id, level = 0L) {
             if (!is.na(id)) {
-                str <- paste0(variable_[[id]], ' ', point[[id]], ' ',
+                str <- paste0(variable_[[id]], ' ', 
+                              paste0(point[[id]], collapse = ' '), ' ',
                               decision_[[id]], ' ', collapse_[[id]])
                 cat(rep.int('  ', level), id, ') ', str, '\n', sep = '')
                 level <- level + 1L
