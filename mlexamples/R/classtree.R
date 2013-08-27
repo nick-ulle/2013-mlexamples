@@ -136,9 +136,11 @@ bestSplit <- function(x, y, risk) {
     if (ncol(x_ord) > 0L) {
         # For each ordinal covariate, make a sorted vector of all unique 
         # midpoints.
-        x_ord_q <- sapply(x_ord, sort)
-        x_ord_q <- (head(x_ord_q, -1L) + tail(x_ord_q, -1L)) / 2
-        x_ord_q <- lapply(data.frame(x_ord_q), unique)
+        x_ord_q <- lapply(x_ord,
+                          function(x_) {
+                              x_ <- sort(unique(x_))
+                              x_ <- (head(x_, -1L) + tail(x_, -1L)) / 2
+                          })
     } else x_ord_q <- NULL
 
     # Now combine everything and find the best split.
