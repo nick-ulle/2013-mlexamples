@@ -87,7 +87,7 @@ makeSubtree <- function(data, risk,
     if(sum(tree$n) >= min_split) {
         split <- bestSplit(data[-1L], data[1L], risk$build_risk)
 
-        split_data <- factor(data[split$variable] %<=% split$point, 
+        split_data <- factor(data[[split$variable]] %<=% split$point, 
                              c(TRUE, FALSE))
         split_data <- split(data, split_data)
         split_n <- vapply(split_data, nrow, NA_integer_)
@@ -299,9 +299,10 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         addSplit = function(variable, point) {
             addLeft()
             addRight()
-            ids <- frame[cursor, 1L:2L]
-            variable_[ids] <<- variable
-            point[ids] <<- point
+            l_id <- frame[[cursor, 1L]]
+            r_id <- frame[[cursor, 2L]]
+            variable_[c(l_id, r_id)] <<- variable
+            point[[r_id]] <<- point[[l_id]] <<- point
         },
 
         # ----- Node Deletion -----
@@ -323,12 +324,12 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             if (is.na(str_variable)) str_variable <- '<root>'
 
             str_point <- point[[id]]
-            str_point <- if (typeof(str_point) == 'factor') {
+            str_point <- if (class(str_point) == 'factor') {
                 if ((node %% 2L) == 0L)
-                    paste0('in (', paste0(str_point, collapse = ', '), ')')
+                    paste0('in {', paste0(str_point, collapse = ', '), '}')
                 else
-                    paste0('not in (', paste0(str_point, collapse = ', '), ')')
-            } else if (typeof(str_point) == 'logical') {
+                    paste0('not in {', paste0(str_point, collapse = ', '), '}')
+            } else if (class(str_point) == 'logical') {
                 str_point
             } else {
                 if ((node %% 2L) == 0L) paste0('<= ', str_point)
