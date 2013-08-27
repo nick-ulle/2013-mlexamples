@@ -278,7 +278,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             callSuper(n_ = matrix(NA_integer_, 0L, classes), ...)
             # Set values.
             variable <<- NA_character_
-            point[[1L]] <<- NA_real_
+            point[[1L]] <<- NA
         },
 
         # ----- Memory Allocation -----
@@ -318,16 +318,32 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         },
 
         # ----- Display -----
-        showSubtree = function(id, level = 0L) {
-            if (!is.na(id)) {
-                str <- paste0(variable_[[id]], ' ', 
-                              paste0(point[[id]], collapse = ' '), ' ',
-                              decision_[[id]], ' ', collapse_[[id]])
-                cat(rep.int('  ', level), id, ') ', str, '\n', sep = '')
-                level <- level + 1L
-                showSubtree(frame[[id, 1L]], level)
-                showSubtree(frame[[id, 2L]], level)
+        showSubtree = function(id, level = 0L, node = 1L) {
+            str_variable <- variable_[[id]]
+            if (is.na(str_variable)) str_variable <- '<root>'
+
+            str_point <- point[[id]]
+            str_point <- if (typeof(str_point) == 'factor') {
+                if ((node %% 2L) == 0L)
+                    paste0('in (', paste0(str_point, collapse = ', '), ')')
+                else
+                    paste0('not in (', paste0(str_point, collapse = ', '), ')')
+            } else if (typeof(str_point) == 'logical') {
+                str_point
+            } else {
+                if ((node %% 2L) == 0L) paste0('<= ', str_point)
+                else paste0('> ', str_point)
             }
+
+            str_n <- paste0('(', paste0(n_[id, ], collapse = ' '), ')')
+
+            str <- paste(str_variable, str_point, decision_[[id]], str_n)
+            cat(rep.int('  ', level), node, ') ', str, '\n', sep = '')
+
+            l_id <- frame[[id, 1L]]
+            r_id <- frame[[id, 2L]]
+            if (!is.na(l_id)) showSubtree(l_id, level + 1L, 2L * node)
+            if (!is.na(r_id)) showSubtree(r_id, level + 1L, 2L * node + 1L)
         },
 
         # ----- Special Methods -----
