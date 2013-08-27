@@ -180,6 +180,7 @@ bestSplitWithin <- function(x_q, x, y, risk) {
 '%<=%' <- function(x, y) UseMethod('%<=%', y)
 '%<=%.default' <- function(x, y) x <= y
 '%<=%.factor' <- function(x, y) x %in% y
+'%<=%.list' <- function(x, y) mapply('%<=%', x, y)
 
 #' Retrieve Split Details
 #'
@@ -427,20 +428,28 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         },
 
         predict = function(data, cutoff = 0L) {
-            ids <- new_ids <- rep.int(1L, nrow(data))
-            repeat {
-                new_ids <- frame[ids, 1L]
-                targets <- cbind(seq_len(nrow(data)), 
-                                 match(variable_[new_ids], colnames(data))
-                                 )
-                new_ids <- ifelse(data[targets] < point[new_ids],
-                                  new_ids, 
-                                  frame[ids, 2L]
-                                  )
-                new_ids <- ifelse(is.na(new_ids), ids, new_ids)
-                new_ids <- ifelse(collapse_[ids] <= cutoff, ids, new_ids)
-                if (all(new_ids == ids)) break
-                else ids <- new_ids
+            # TODO: this function could be more efficient.
+            ids <- rep.int(1L, nrow(data))
+            prev_ids <- 0L
+
+            while (any(ids != prev_ids)) {
+                prev_ids <- ids
+
+                # Get left child of previous node for every row.
+                ids <- frame[prev_ids, 1L]
+                variables <- cbind(seq_len(nrow(data)), 
+                                   match(variable_[ids], colnames(data))
+                                   )
+
+                # Check split condition in left child for every row.
+                ids <- ifelse(data[variables] %<=% point[ids],
+                              ids, 
+                              frame[prev_ids, 2L]
+                              )
+
+                # Don't descend if previous node had no children.
+                ids <- ifelse(is.na(ids), prev_ids, ids)
+                ids <- ifelse(collapse_[prev_ids] <= cutoff, prev_ids, ids)
             }
             return(decision_[ids])
         }
