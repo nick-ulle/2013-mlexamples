@@ -72,10 +72,34 @@ makeTree <- function(formula, data,
     return(tree)
 }
 
+randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
+    call_signature <- match.call(expand.dots = FALSE)
+    m <- match(c('formula', 'data'), names(call_signature))
+    call_signature <- call_signature[c(1L, m)]
+    call_signature[[1L]] <- as.name('model.frame')
+    data <- eval(call_signature, parent.frame())
+
+    risk <- list(build_risk = risk, prune_risk = costDummy)
+
+    # Get bootstrap samples.
+    n <- nrow(data)
+    sample_indices <- replicate(num_trees, sample.int(n, n, TRUE))
+
+    # Run makeSubtree on each bootstrapped sample.
+    forest <- apply(sample_indices, 2L,
+                    function(i_) {
+                        training_set <- data[i_, ]
+                        #test_set <- [-i_, ]
+                        makeSubtree(training_set, risk, ..., 
+                                    num_covariates = num_covariates)
+                    })
+    structure(forest, class = 'ClassForest')
+}
+
 # Makes a subtree given the data.
 makeSubtree <- function(data, risk, 
                         min_split = 20L, min_bucket = min_split %/% 3, 
-                        tree) {
+                        tree, num_covariates = Inf) {
     details <- splitDetails(data[1L])
     if (missing(tree)) tree <- ClassTree(length(details$n))
     tree$decision <- details$decision
@@ -85,7 +109,7 @@ makeSubtree <- function(data, risk,
     # In any iteration we need to check that the parent is big enough to split,
     # and that the children are big enough to keep the split.
     if(sum(tree$n) >= min_split) {
-        split <- bestSplit(data[-1L], data[1L], risk$build_risk)
+        split <- bestSplit(data[-1L], data[1L], risk$build_risk, num_covariates)
 
         split_data <- factor(data[[split$variable]] %<=% split$point, 
                              c(TRUE, FALSE))
@@ -112,9 +136,11 @@ makeSubtree <- function(data, risk,
 }
 
 # Finds best split among all covariates.
-bestSplit <- function(x, y, risk) {
-    # TODO: move sorting up the call stack (it only needs to be done once).
-    # First determine which covariates are ordinal and which are nominal.
+bestSplit <- function(x, y, risk, num_covariates = Inf) {
+    # Randomly choose covariates in case of random forests.
+    if (num_covariates < ncol(x)) x <- x[sample.int(ncol(x), num_covariates)]
+
+    # Determine which covariates are ordinal and which are nominal.
     nominal <- vapply(x, is.factor, NA)
     x_nom <- x[nominal]
     x_ord <- x[!nominal]
@@ -230,6 +256,8 @@ costEntropy <- function(y) {
     cost <- sum(ifelse(is.nan(cost), 0, cost))
     return(cost)
 }
+
+costDummy <- function(y) 0L
 
 # Cross-validation functions
 validateTree <- function(tuning, tree, test_set) {
