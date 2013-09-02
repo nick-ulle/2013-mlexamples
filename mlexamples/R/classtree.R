@@ -73,6 +73,7 @@ makeTree <- function(formula, data,
 }
 
 randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
+    # TODO: clean up & unify tree-growing interfaces.
     call_signature <- match.call(expand.dots = FALSE)
     m <- match(c('formula', 'data'), names(call_signature))
     call_signature <- call_signature[c(1L, m)]
@@ -94,6 +95,17 @@ randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
                                     num_covariates = num_covariates)
                     })
     structure(forest, class = 'ClassForest')
+}
+
+print.ClassForest <- function(object) {
+    # TODO: add OOB error estimate.
+    cat(paste0('Random forest with ', length(object), ' trees.\n'))
+}
+
+predict.ClassForest <- function(object, data, ...) {
+    pred <- lapply(object, function(tree_) tree_$predict(data, -Inf))
+    pred <- Reduce(cbind, pred)
+    apply(pred, 1L, function(pred_) names(which.max(table(pred_))))
 }
 
 # Makes a subtree given the data.
