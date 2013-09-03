@@ -1,3 +1,7 @@
+export("%<=%")
+export("%<=%.default")
+export("%<=%.factor")
+export("%<=%.list")
 export(costEntropy)
 export(costError)
 export(costGini)

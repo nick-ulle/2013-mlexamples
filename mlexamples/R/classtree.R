@@ -217,9 +217,20 @@ bestSplitWithin <- function(x_q, x, y, risk) {
 #' @param x a vector, the values to be tested.
 #' @param y a numeric value or a factor, which defines the split.
 #' @return A logical vector of the same length as \code{x}.
+#' @rdname LeftBranch
+#' @export
 '%<=%' <- function(x, y) UseMethod('%<=%', y)
-'%<=%.default' <- function(x, y) x <= y
+
+#' @rdname LeftBranch
+#' @export
+'%<=%.default' <- function(x, y) as.numeric(x) <= as.numeric(y)
+
+#' @rdname LeftBranch
+#' @export
 '%<=%.factor' <- function(x, y) x %in% y
+
+#' @rdname LeftBranch
+#' @export
 '%<=%.list' <- function(x, y) mapply('%<=%', x, y)
 
 #' Retrieve Split Details
