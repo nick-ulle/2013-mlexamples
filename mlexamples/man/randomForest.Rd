@@ -23,7 +23,7 @@
   \item{...}{other arguments used by \code{makeTree}.}
 }
 \value{
-  an S3 class ClassForest, representing the forest of
+  An S3 class ClassForest, representing the forest of
   classification trees.
 }
 \description{

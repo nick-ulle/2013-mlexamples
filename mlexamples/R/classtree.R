@@ -84,7 +84,7 @@ makeTree <- function(formula, data,
 #' @param num_covariates the number of covariates to select (randomly) when
 #' determining each split.
 #' @param ... other arguments used by \code{makeTree}.
-#' @return an S3 class ClassForest, representing the forest of classification 
+#' @return An S3 class ClassForest, representing the forest of classification 
 #' trees.
 #' @examples
 #'
@@ -116,6 +116,11 @@ randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
     structure(forest, class = 'ClassForest')
 }
 
+#' Print Method For Random Forests
+#'
+#' @param object a ClassForest object, which will be printed to the console.
+#' @method print ClassForest
+#' @S3method print ClassForest
 print.ClassForest <- function(object) {
     # TODO: add OOB error estimate.
     cat(paste0('Random forest with ', length(object), ' trees.\n'))
@@ -127,7 +132,7 @@ print.ClassForest <- function(object) {
 #' prediction.
 #' @param data a data.frame of new data for which to make predictions.
 #' @param ... reserved for future use.
-#' @return a vector of predictions, one for each row of \code{data}.
+#' @return A vector of predictions, one for each row of \code{data}.
 #' @method predict ClassForest
 #' @S3method predict ClassForest
 predict.ClassForest <- function(object, data, ...) {
@@ -513,7 +518,6 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
 
         predict = function(data, cutoff = 0L) {
             # TODO: this function could be more efficient.
-            # TODO: this function compares numerics as characters!
             ids <- rep.int(1L, nrow(data))
             prev_ids <- 0L
 

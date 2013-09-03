@@ -14,7 +14,7 @@
   \item{...}{reserved for future use.}
 }
 \value{
-  a vector of predictions, one for each row of \code{data}.
+  A vector of predictions, one for each row of \code{data}.
 }
 \description{
   Predict Method For Random Forests
