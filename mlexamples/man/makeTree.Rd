@@ -1,6 +1,6 @@
 \name{makeTree}
 \alias{makeTree}
-\title{Build A Classification Tree}
+\title{Grow A Classification Tree}
 \usage{
   makeTree(formula, data, build_risk = costGini,
     prune_risk = costError, min_split = 20L,
@@ -34,10 +34,10 @@
   classification tree.
 }
 \description{
-  This function builds a classification tree from data,
+  This function grows a classification tree from data,
   following the CART algorithm described in "Classification
-  and Regression Trees". Regression trees, missing data,
-  and nominal covariates are not yet supported.
+  and Regression Trees". Regression trees, priors, and
+  missing data are not yet supported.
 }
 \examples{
 # Build a classification tree for Fisher's iris data using defaults.

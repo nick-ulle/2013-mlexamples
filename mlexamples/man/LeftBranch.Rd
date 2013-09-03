@@ -7,11 +7,11 @@
 \usage{
   %<=%(x, y)
 
-  %<=%.default(x, y)
+  \method{\%<=\%}{default} (x, y)
 
-  %<=%.factor(x, y)
+  \method{\%<=\%}{factor} (x, y)
 
-  %<=%.list(x, y)
+  \method{\%<=\%}{list} (x, y)
 }
 \arguments{
   \item{x}{a vector, the values to be tested.}

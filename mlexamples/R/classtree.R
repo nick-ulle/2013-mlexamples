@@ -5,11 +5,11 @@
 #' @include cv.R
 NULL
 
-#' Build A Classification Tree
+#' Grow A Classification Tree
 #'
-#' This function builds a classification tree from data, following the CART
+#' This function grows a classification tree from data, following the CART
 #' algorithm described in "Classification and Regression Trees". Regression 
-#' trees, missing data, and nominal covariates are not yet supported.
+#' trees, priors, and missing data are not yet supported.
 #'
 #' @param formula a formula, with a response and covariates.
 #' @param data an optional data.frame whose columns are variables named in the
@@ -72,6 +72,25 @@ makeTree <- function(formula, data,
     return(tree)
 }
 
+#' Grow A Random Forest
+#'
+#' This function grows a forest of classification trees from data.
+#'
+#' @param formula a formula, with a response and covariates.
+#' @param data an optional data.frame whose columns are variables named in the
+#' formula.
+#' @param risk a function, to be used for estimating risk when growing the tree.
+#' @param num_trees the number of trees to grow.
+#' @param num_covariates the number of covariates to select (randomly) when
+#' determining each split.
+#' @param ... other arguments used by \code{makeTree}.
+#' @return an S3 class ClassForest, representing the forest of classification 
+#' trees.
+#' @examples
+#'
+#' randomForest(Species ~ ., iris, costGini, 10, 2)
+#'
+#' @export
 randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
     # TODO: clean up & unify tree-growing interfaces.
     call_signature <- match.call(expand.dots = FALSE)
@@ -102,6 +121,15 @@ print.ClassForest <- function(object) {
     cat(paste0('Random forest with ', length(object), ' trees.\n'))
 }
 
+#' Predict Method For Random Forests
+#'
+#' @param object a ClassForest object, which will be used to make the
+#' prediction.
+#' @param data a data.frame of new data for which to make predictions.
+#' @param ... reserved for future use.
+#' @return a vector of predictions, one for each row of \code{data}.
+#' @method predict ClassForest
+#' @S3method predict ClassForest
 predict.ClassForest <- function(object, data, ...) {
     pred <- lapply(object, function(tree_) tree_$predict(data, -Inf))
     pred <- Reduce(cbind, pred)
@@ -222,15 +250,18 @@ bestSplitWithin <- function(x_q, x, y, risk) {
 '%<=%' <- function(x, y) UseMethod('%<=%', y)
 
 #' @rdname LeftBranch
-#' @export
+#' @method \%<=\% default
+#' @S3method %<=% default
 '%<=%.default' <- function(x, y) as.numeric(x) <= as.numeric(y)
 
 #' @rdname LeftBranch
-#' @export
+#' @method \%<=\% factor
+#' @S3method %<=% factor
 '%<=%.factor' <- function(x, y) x %in% y
 
 #' @rdname LeftBranch
-#' @export
+#' @method \%<=\% list
+#' @S3method %<=% list
 '%<=%.list' <- function(x, y) mapply('%<=%', x, y)
 
 #' Retrieve Split Details
@@ -482,6 +513,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
 
         predict = function(data, cutoff = 0L) {
             # TODO: this function could be more efficient.
+            # TODO: this function compares numerics as characters!
             ids <- rep.int(1L, nrow(data))
             prev_ids <- 0L
 
