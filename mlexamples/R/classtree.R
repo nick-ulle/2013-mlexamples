@@ -318,7 +318,55 @@ costEntropy <- function(y) {
 
 costDummy <- function(y) 0L
 
-# Cross-validation functions
+getNodeP <- function(y, N, prior = N / sum(N)) {
+    N <- as.numeric(N)
+    prior <- as.numeric(prior)
+
+    p <- cbind(left = table(y[[1L]]), right = table(y[[2L]]))
+    p <- t(prior * p / N)
+    
+    list(joint = p, conditional = p / rowSums(p))
+}
+
+riskSSE <- function(y, N, prior = N / sum(N)) {
+    sse <- vapply(y, function(y_) norm(mean(y_) - y_, '2')^2, 0)
+    sum(sse)
+}
+
+riskSAE <- function(y, N, prior = N / sum(N)) {
+    sae <- vapply(y, function(y_) sum(abs(mean(y_) - y_)), 0)
+    sum(sae)
+}
+
+riskError <- function(y, N, prior = N / sum(N)) {
+    p <- getNodeP(y, N, prior)
+    error <- 1 - apply(p$c, 1L, max)
+    risk <- sum(error * rowSums(p$j)) / sum(p$j)
+    return(risk)
+}
+
+riskGini <- function(y, N, prior = N / sum(N)) {
+    p <- getNodeP(y, N, prior)
+    gini <- rowSums(p$c - p$c^2)
+    risk <- sum(gini * rowSums(p$j)) / sum(p$j)
+    return(risk)
+}
+
+riskEntropy <- function(y, N, prior = N /sum(N)) {
+    p <- getNodeP(y, N, prior)
+    entropy <- rowSums(ifelse(p$c == 0, 0, -p$c * log(p$c)))
+    risk <- sum(entropy * rowSums(p$j)) / sum(p$j)
+    return(risk)
+}
+
+riskTwoing <- function(y, N, prior = N / sum(N)) {
+    p <- getNodeP(y, N, prior)
+    twoing <- sum(abs(p$j[1L, ] - p$j[2L, ]))^2
+    risk <- -prod(rowSums(p$j) / sum(p$j)) * twoing / 4
+    return(risk)
+}
+
+# Validation function for use in cross-validation.
 validateTree <- function(tuning, tree, test_set) {
     pred <- tree$predict(test_set, tuning)
     1 - sum(test_set[[1L]] == pred) / nrow(test_set)
