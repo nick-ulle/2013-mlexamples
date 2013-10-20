@@ -40,32 +40,45 @@ makeTree <- function(formula, data,
                      build_risk = costGini, prune_risk = costError, 
                      min_split = 20L, min_bucket = min_split %/% 3,
                      folds = 10L) {
+    # Parse formulas into a data frame with response and covariate columns.
     call_signature <- match.call(expand.dots = FALSE)
     m <- match(c('formula', 'data'), names(call_signature))
     call_signature <- call_signature[c(1L, m)]
     call_signature[[1L]] <- as.name('model.frame')
     data <- eval(call_signature, parent.frame())
 
+    # Set up risk functions as a list.
     risk <- list(build_risk = build_risk, prune_risk = prune_risk)
-    tree <- makeSubtree(data, risk, min_split)
+
+    tree <- makeSubtree(data, risk, min_split, min_bucket)
     tree$finalizeCollapse()
 
     if (folds > 0L) {
-        # Cross-validate.
+        # Define a training function to use in cross-validation.
         trainTree <- function(data) {
-            tree <- makeSubtree(data, risk, min_split)
+            tree <- makeSubtree(data, risk, min_split, min_bucket)
             tree$finalizeCollapse()
             return(tree)
+        }
+        
+        # Also define a validation function. Use proportion wrongly predicted
+        # as validation score.
+        validateTree <- function(tuning, tree, test_set) {
+            pred <- tree$predict(test_set, tuning)
+            sum(test_set[[1L]] != pred) / nrow(test_set)
         }
     
         tuning <- sort(tree$getTuning(), decreasing = FALSE)
         cv <- crossValidate(data, trainTree, validateTree, tuning, folds)
-        id <- which.min(cv[2L, , drop = FALSE])
-        # Use the "one standard error" rule.
-        cv <- cv[, cv[2L, ] < cv[2L, id] + cv[3L, id], drop = FALSE]
-        tuning <- cv[[1L, 1L]]
+        best <- which.min(cv$estimate)
+
+        # Use the "one standard error" rule: get the smallest tuning parameter
+        # whose estimated prediction error is within one standard error of the
+        # (larger) best tuning parameter.
+        cv <- subset(cv, estimate < estimate[[best]] + error[[best]])
+        tuning <- cv$parameter[[1L]]
     
-        # Prune tree.
+        # Prune the tree using the cv'd tuning parameter.
         tree$prune(tuning)
     }
 
@@ -142,9 +155,8 @@ predict.ClassForest <- function(object, data, ...) {
 }
 
 # Makes a subtree given the data.
-makeSubtree <- function(data, risk, 
-                        min_split = 20L, min_bucket = min_split %/% 3, 
-                        tree, num_covariates = Inf) {
+makeSubtree <- function(data, risk, min_split, min_bucket, tree,
+                        num_covariates = Inf) {
     details <- splitDetails(data[1L])
     if (missing(tree)) tree <- ClassTree(length(details$n))
     tree$decision <- details$decision
@@ -366,11 +378,6 @@ riskTwoing <- function(y, N, prior = N / sum(N)) {
     return(risk)
 }
 
-# Validation function for use in cross-validation.
-validateTree <- function(tuning, tree, test_set) {
-    pred <- tree$predict(test_set, tuning)
-    1 - sum(test_set[[1L]] == pred) / nrow(test_set)
-}
 
 ClassTree = setRefClass('ClassTree', contains = c('Tree'),
     fields = list(
