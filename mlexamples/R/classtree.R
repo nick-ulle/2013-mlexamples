@@ -38,7 +38,7 @@ NULL
 #' @export
 makeTree <- function(formula, data, 
                      build_risk = costGini, prune_risk = costError, 
-                     min_split = 20L, min_bucket = min_split %/% 3,
+                     min_split = 20L, min_bucket = round(min_split / 3),
                      folds = 10L) {
     # Parse formulas into a data frame with response and covariate columns.
     call_signature <- match.call(expand.dots = FALSE)
@@ -166,15 +166,18 @@ makeSubtree <- function(data, risk, min_split, min_bucket, tree,
     # In any iteration we need to check that the parent is big enough to split,
     # and that the children are big enough to keep the split.
     if(sum(tree$n) >= min_split) {
+        # Find the best split and then split the data.
         split <- bestSplit(data[-1L], data[1L], risk$build_risk, num_covariates)
 
         split_data <- factor(data[[split$variable]] %<=% split$point, 
-                             c(TRUE, FALSE))
+                             levels = c(TRUE, FALSE))
         split_data <- split(data, split_data)
-        split_n <- vapply(split_data, nrow, NA_integer_)
+
+        # Count how many observations fall on each side of the split.
+        split_n <- vapply(split_data, nrow, 0L)
         
         if (all(split_n >= min_bucket)) {
-            # Reaching this point means this node is a branch.
+            # Keep this split -- make this node a branch.
             tree$addSplit(split$variable, split$point)
 
             tree$goLeft()
@@ -187,6 +190,7 @@ makeSubtree <- function(data, risk, min_split, min_bucket, tree,
         }
     }
 
+    # Update risks for future cost-complexity pruning.
     tree$risk <- risk$prune_risk(data[1L]) * sum(tree$n)
     tree$updateCollapse()
     return(tree)
@@ -340,31 +344,21 @@ getNodeP <- function(y, N, prior = N / sum(N)) {
     list(joint = p, conditional = p / rowSums(p))
 }
 
-riskSSE <- function(y, N, prior = N / sum(N)) {
-    sse <- vapply(y, function(y_) norm(mean(y_) - y_, '2')^2, 0)
-    sum(sse)
-}
-
-riskSAE <- function(y, N, prior = N / sum(N)) {
-    sae <- vapply(y, function(y_) sum(abs(mean(y_) - y_)), 0)
-    sum(sae)
-}
-
 riskError <- function(y, N, prior = N / sum(N)) {
     p <- getNodeP(y, N, prior)
-    error <- 1 - apply(p$c, 1L, max)
-    risk <- sum(error * rowSums(p$j)) / sum(p$j)
+    error <- 1 - apply(p$cond, 1L, max)
+    risk <- sum(error * rowSums(p$joint)) / sum(p$joint)
     return(risk)
 }
 
 riskGini <- function(y, N, prior = N / sum(N)) {
     p <- getNodeP(y, N, prior)
-    gini <- rowSums(p$c - p$c^2)
-    risk <- sum(gini * rowSums(p$j)) / sum(p$j)
+    gini <- rowSums(p$cond - p$cond^2)
+    risk <- sum(gini * rowSums(p$joint)) / sum(p$joint)
     return(risk)
 }
 
-riskEntropy <- function(y, N, prior = N /sum(N)) {
+riskEntropy <- function(y, N, prior = N / sum(N)) {
     p <- getNodeP(y, N, prior)
     entropy <- rowSums(ifelse(p$c == 0, 0, -p$c * log(p$c)))
     risk <- sum(entropy * rowSums(p$j)) / sum(p$j)
@@ -378,6 +372,15 @@ riskTwoing <- function(y, N, prior = N / sum(N)) {
     return(risk)
 }
 
+riskSSE <- function(y, N, prior = N / sum(N)) {
+    sse <- vapply(y, function(y_) norm(mean(y_) - y_, '2')^2, 0)
+    sum(sse)
+}
+
+riskSAE <- function(y, N, prior = N / sum(N)) {
+    sae <- vapply(y, function(y_) sum(abs(mean(y_) - y_)), 0)
+    sum(sae)
+}
 
 ClassTree = setRefClass('ClassTree', contains = c('Tree'),
     fields = list(
@@ -501,36 +504,44 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             ids <- frame[cursor, 1L:2L]
 
             if (isLeaf()) {
+                # Leaf risk of a leaf is just its risk.
                 leaf_risk <<- risk
                 leaf_count <<- 1L
                 collapse <<- Inf
             } else {
+                # Leaf risk of a branch is the sum of its child risks.
                 leaf_risk <<- sum(leaf_risk_[ids])
                 leaf_count <<- sum(leaf_count_[ids])
                 collapse <<- (risk - leaf_risk) / (leaf_count - 1L)
             }
         },
 
+        # The final sequence of collapse points for consideration in CV comes
+        # from collapsing the weakest link, recalculating the collapse points,
+        # and repeating. This function performs that procedure.
         finalizeCollapse = function() {
             # NOTE: Multiple best collapse points are not handled
             # simultaneously, but rather by consecutive iterations. This is 
             # also how the algorithm outlined by Breiman operates.
 
-            # Find minimum collapse node, prune, and update repeatedly.
             final_collapse <- rep(Inf, next_id - 1L)
             final_leaf_risk <- leaf_risk_
             final_leaf_count <- leaf_count_
 
+            # Move to minimum collapse node, change is risk as though it was
+            # pruned, and then update the tree. Repeat until reaching the root.
             cursor <<- which.min(collapse_)
-            while (cursor > 1L) {
-                # Store the collapse value.
+            while (!isRoot()) {
+                # Store this node's collapse value.
                 final_collapse[[cursor]] <- collapse
-                # Make this node have risk of a leaf.
+
+                # Make this node's risk look like a leaf.
                 leaf_risk <<- risk
                 leaf_count <<- 1L
                 collapse <<- Inf
+
                 # Update ancestors.
-                while(cursor > 1L) {
+                while(!isRoot()) {
                     goUp()
                     updateCollapse()
                 }
@@ -539,6 +550,7 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
             }
 
             final_collapse[[cursor]] <- collapse
+            # Collapse points should be non-negative.
             final_collapse <- pmax.int(final_collapse, 0L)
             collapse_[seq_along(final_collapse)] <<- final_collapse
             # TODO: possibly redesign updateCollapse() so that storing
@@ -548,8 +560,8 @@ ClassTree = setRefClass('ClassTree', contains = c('Tree'),
         },
 
         prune = function(cutoff) {
-            # Walk down the tree, pruning anything whose collapse value doesn't
-            # exceed cutoff.
+            # Walk down the tree, pruning any branch  whose collapse value 
+            # doesn't exceed cutoff.
             if (!isLeaf()) {
                 if (collapse <= cutoff) {
                     # This branch gets pruned, so make this node a leaf.
