@@ -42,7 +42,7 @@ crossValidate <- function(data, train, validate, tuning = NA, folds = 10L) {
     estimate <- rowMeans(risk)
     std_err <- sqrt(apply(risk, 1L, var) / folds)
 
-    if (is.na(tuning)) rbind('Estimate' = estimate, 'Std. Error' = std_err)
+    if (all(is.na(tuning))) rbind('Estimate' = estimate, 'Std. Error' = std_err)
     else rbind('Parameter' = tuning, 'Estimate' = estimate, 
                'Std. Error' = std_err)
 }
