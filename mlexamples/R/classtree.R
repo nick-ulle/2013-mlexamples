@@ -37,6 +37,12 @@ NULL
 #' makeTree(spray ~ count, InsectSprays, build_risk = riskError, 
 #'          min_split = 25L)
 #'
+#' # Build a classifcation tree for the included housing data set, which is
+#' # somewhat 'large'. This code will take a long time to run.
+#' \dontrun{data(housing)}
+#' \dontrun{makeTree(city ~ ., housing)}
+#' \dontrun{library(rpart)}
+#' \dontrun{rpart(city ~ ., housing, control = list(xval = 10))}
 #' @export
 makeTree <- function(formula, data, 
                      build_risk = riskGini, prune_risk = riskError, 

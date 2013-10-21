@@ -52,5 +52,12 @@ makeTree(Species ~ ., iris)
 # observations in every split node.
 makeTree(spray ~ count, InsectSprays, build_risk = riskError,
          min_split = 25L)
+
+# Build a classifcation tree for the included housing data set, which is
+# somewhat 'large'. This code will take a long time to run.
+\dontrun{data()}
+\dontrun{makeTree(city ~ ., housing)}
+\dontrun{library(rpart)}
+\dontrun{rpart(city ~ ., housing, control = list(xval = 10))}
 }
 
