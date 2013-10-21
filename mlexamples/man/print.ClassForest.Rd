@@ -2,11 +2,14 @@
 \alias{print.ClassForest}
 \title{Print Method For Random Forests}
 \usage{
-  \method{print}{ClassForest} (object)
+  \method{print}{ClassForest} (x, ...)
 }
 \arguments{
-  \item{object}{a ClassForest object, which will be printed
-  to the console.}
+  \item{x}{a ClassForest object, which will be printed to
+  the console.}
+
+  \item{...}{further arguments passed to or from other
+  methods.}
 }
 \description{
   Print Method For Random Forests

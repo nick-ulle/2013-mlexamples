@@ -9,7 +9,7 @@ NULL
 #'
 #' This function grows a classification tree from data, following the CART
 #' algorithm described in "Classification and Regression Trees". Regression 
-#' trees, priors, and missing data are not yet supported.
+#' trees and missing data are not yet supported.
 #'
 #' @param formula a formula, with a response and covariates.
 #' @param data an optional data.frame whose columns are variables named in the
@@ -23,6 +23,8 @@ NULL
 #' @param folds the number of folds to be used in cross-validation of the
 #' cost-complexity parameter. If this is not positive, cross-validation will be
 #' skipped.
+#' @param prior a numeric vector of prior probabilities for each class. This
+#' parameter is ignored when doing regression.
 #' @return a reference class ClassTree, representing the classification tree.
 #'
 #' @examples
@@ -32,14 +34,14 @@ NULL
 #' # Build a classification tree for the insect spray data using
 #' # misclassification rate instead of Gini impurity, and require at least 25
 #' # observations in every split node.
-#' makeTree(spray ~ count, InsectSprays, build_risk = costError, 
+#' makeTree(spray ~ count, InsectSprays, build_risk = riskError, 
 #'          min_split = 25L)
 #'
 #' @export
 makeTree <- function(formula, data, 
-                     build_risk = costGini, prune_risk = costError, 
+                     build_risk = riskGini, prune_risk = riskError, 
                      min_split = 20L, min_bucket = round(min_split / 3),
-                     folds = 10L) {
+                     folds = 10L, prior) {
     # Parse formulas into a data frame with response and covariate columns.
     call_signature <- match.call(expand.dots = FALSE)
     m <- match(c('formula', 'data'), names(call_signature))
@@ -48,7 +50,13 @@ makeTree <- function(formula, data,
     data <- eval(call_signature, parent.frame())
 
     # Set up risk functions as a list.
-    risk <- list(build_risk = build_risk, prune_risk = prune_risk)
+    N <- table(data[[1]])
+    if(missing(prior)) prior <- N / sum(N)
+    risk <- list(build_risk = function(.) build_risk(., N, prior, TRUE),
+                 prune_risk = function(.) {
+                     . <- list(., .[0])
+                     prune_risk(., N, prior, FALSE)[[1]]
+                 })
 
     tree <- makeSubtree(data, risk, min_split, min_bucket)
     tree$finalizeCollapse()
@@ -75,7 +83,7 @@ makeTree <- function(formula, data,
         # Use the "one standard error" rule: get the smallest tuning parameter
         # whose estimated prediction error is within one standard error of the
         # (larger) best tuning parameter.
-        cv <- subset(cv, estimate < estimate[[best]] + error[[best]])
+        cv <- cv[cv$estimate < cv$estimate[[best]] + cv$error[[best]], ]
         tuning <- cv$parameter[[1L]]
     
         # Prune the tree using the cv'd tuning parameter.
@@ -96,15 +104,20 @@ makeTree <- function(formula, data,
 #' @param num_trees the number of trees to grow.
 #' @param num_covariates the number of covariates to select (randomly) when
 #' determining each split.
-#' @param ... other arguments used by \code{makeTree}.
+#' @param min_split the minimum number of observations required to make a split.
+#' @param min_bucket the minimum number of observations required in each leaf.
+#' @param prior a numeric vector of prior probabilities for each class. This
+#' parameter is ignored when doing regression.
 #' @return An S3 class ClassForest, representing the forest of classification 
 #' trees.
 #' @examples
 #'
-#' randomForest(Species ~ ., iris, costGini, 10, 2)
+#' randomForest(Species ~ ., iris, riskGini, 10, 2)
 #'
 #' @export
-randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
+randomForest <- function(formula, data, risk = riskGini, num_trees, 
+                         num_covariates, min_split = 20L, 
+                         min_bucket = round(min_split / 3), prior) {
     # TODO: clean up & unify tree-growing interfaces.
     call_signature <- match.call(expand.dots = FALSE)
     m <- match(c('formula', 'data'), names(call_signature))
@@ -112,7 +125,12 @@ randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
     call_signature[[1L]] <- as.name('model.frame')
     data <- eval(call_signature, parent.frame())
 
-    risk <- list(build_risk = risk, prune_risk = costDummy)
+    # Set up risk functions as a list. Since random forests are not pruned,
+    # a dummy function is used for computing the prune risk.
+    N <- table(data[[1]])
+    if(missing(prior)) prior <- N / sum(N)
+    risk2 <- list(build_risk = function(.) risk(., N, prior, TRUE),
+                  prune_risk = function(.) 0)
 
     # Get bootstrap samples.
     n <- nrow(data)
@@ -123,7 +141,7 @@ randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
                     function(i_) {
                         training_set <- data[i_, ]
                         #test_set <- [-i_, ]
-                        makeSubtree(training_set, risk, ..., 
+                        makeSubtree(training_set, risk2, min_split, min_bucket, 
                                     num_covariates = num_covariates)
                     })
     structure(forest, class = 'ClassForest')
@@ -131,12 +149,13 @@ randomForest <- function(formula, data, risk, num_trees, num_covariates, ...) {
 
 #' Print Method For Random Forests
 #'
-#' @param object a ClassForest object, which will be printed to the console.
+#' @param x a ClassForest object, which will be printed to the console.
+#' @param ... further arguments passed to or from other methods.
 #' @method print ClassForest
 #' @S3method print ClassForest
-print.ClassForest <- function(object) {
+print.ClassForest <- function(x, ...) {
     # TODO: add OOB error estimate.
-    cat(paste0('Random forest with ', length(object), ' trees.\n'))
+    cat(paste0('Random forest with ', length(x), ' trees.\n'))
 }
 
 #' Predict Method For Random Forests
@@ -191,7 +210,8 @@ makeSubtree <- function(data, risk, min_split, min_bucket, tree,
     }
 
     # Update risks for future cost-complexity pruning.
-    tree$risk <- risk$prune_risk(data[1L]) * sum(tree$n)
+    #tree$risk <- risk$prune_risk(data[1L]) * sum(tree$n)
+    tree$risk <- risk$prune_risk(data[[1]])
     tree$updateCollapse()
     return(tree)
 }
@@ -246,10 +266,7 @@ bestSplitWithin <- function(x_q, x, y, risk) {
                      function(x_) { 
                          y_split <- factor(x %<=% x_, c(TRUE, FALSE))
                          y_split <- split(y, y_split)
-                         y_split <- vapply(y_split, 
-                                           function(y_) c(risk(y_), nrow(y_)),
-                                           numeric(2))
-                         sum(y_split[1, ] * y_split[2, ])
+                         risk(y_split)
                         }, NA_real_)
     best <- which.min(splits)
     list(splits[[best]] / nrow(y), x_q[[best]])
@@ -299,42 +316,7 @@ splitDetails <- function(y) {
     list(decision = decision, n = n)
 }
 
-#' Cost Functions
-#'
-#' These functions compute the cost of representing a set with its majority
-#' element.
-#'
-#' @param y a factor.
-#' @return a numeric cost.
-#' @rdname Cost
-#' @export
-costError <- function(y) {
-    y_prop <- prop.table(table(y))
-    cost <- if (any(is.nan(y_prop))) 0 else 1 - max(y_prop)
-    return(cost)
-}
-
-#' @rdname Cost
-#' @export
-costGini <- function(y) {
-    y_prop <- prop.table(table(y))
-    cost <- if (any(is.nan(y_prop))) 0 else sum(y_prop * (1 - y_prop))
-    return(cost)
-}
-
-#' @rdname Cost
-#' @export
-costEntropy <- function(y) {
-    y_prop <- prop.table(table(y))
-    cost <- -y_prop * log(y_prop)
-    # Handles the case where y_prop contains zero or NaN.
-    cost <- sum(ifelse(is.nan(cost), 0, cost))
-    return(cost)
-}
-
-costDummy <- function(y) 0L
-
-getNodeP <- function(y, N, prior = N / sum(N)) {
+getNodeP <- function(y, N, prior) {
     N <- as.numeric(N)
     prior <- as.numeric(prior)
 
@@ -344,40 +326,79 @@ getNodeP <- function(y, N, prior = N / sum(N)) {
     list(joint = p, conditional = p / rowSums(p))
 }
 
-riskError <- function(y, N, prior = N / sum(N)) {
+#' Risk Functions
+#'
+#' These functions compute the risk of a split. For classification, possible
+#' metrics are error, gini coefficient, information entropy, and twoing. The
+#' former three are also available for computing the risk of a node by setting
+#' the \code{avg} parameter to FALSE. For regression, possible metrics are
+#' sum of squared error (SSE) and sum of absolute error (SAE); these functions
+#' ignore all parameters except \code{y}.
+#'
+#' Custom risk functions can also be written by the user, provided they have
+#' the same behavior and signature described in this file.
+#'
+#' @param y a factor (for classification) or a numeric vector (for regression).
+#' @param N a numeric vector of overall sample counts for each class.
+#' @param prior a numeric vector of prior probabilities for each class.
+#' @param avg a logical indicating whether to take the weighted average of
+#' the risk for each side.
+#' @return a numeric cost.
+#' @rdname Risk
+#' @export
+riskError <- function(y, N, prior, avg) {
     p <- getNodeP(y, N, prior)
     error <- 1 - apply(p$cond, 1L, max)
-    risk <- sum(error * rowSums(p$joint)) / sum(p$joint)
+
+    risk <- error * rowSums(p$joint)
+    # Take weighted average of each side, if requested.
+    if (avg) risk <- sum(risk) / sum(p$joint)
     return(risk)
 }
 
-riskGini <- function(y, N, prior = N / sum(N)) {
+#' @rdname Risk
+#' @export
+riskGini <- function(y, N, prior, avg) {
     p <- getNodeP(y, N, prior)
     gini <- rowSums(p$cond - p$cond^2)
-    risk <- sum(gini * rowSums(p$joint)) / sum(p$joint)
+
+    risk <- gini * rowSums(p$joint)
+    # Take weighted average of each side, if requested.
+    if (avg) risk <- sum(risk) / sum(p$joint)
     return(risk)
 }
 
-riskEntropy <- function(y, N, prior = N / sum(N)) {
+#' @rdname Risk
+#' @export
+riskEntropy <- function(y, N, prior, avg) {
     p <- getNodeP(y, N, prior)
     entropy <- rowSums(ifelse(p$c == 0, 0, -p$c * log(p$c)))
-    risk <- sum(entropy * rowSums(p$j)) / sum(p$j)
+
+    risk <- entropy * rowSums(p$joint)
+    # Take weighted average of each side, if requested.
+    if (avg) risk <- sum(risk) / sum(p$joint)
     return(risk)
 }
 
-riskTwoing <- function(y, N, prior = N / sum(N)) {
+#' @rdname Risk
+#' @export
+riskTwoing <- function(y, N, prior, avg) {
     p <- getNodeP(y, N, prior)
     twoing <- sum(abs(p$j[1L, ] - p$j[2L, ]))^2
     risk <- -prod(rowSums(p$j) / sum(p$j)) * twoing / 4
     return(risk)
 }
 
-riskSSE <- function(y, N, prior = N / sum(N)) {
+#' @rdname Risk
+#' @export
+riskSSE <- function(y, N, prior, avg) {
     sse <- vapply(y, function(y_) norm(mean(y_) - y_, '2')^2, 0)
     sum(sse)
 }
 
-riskSAE <- function(y, N, prior = N / sum(N)) {
+#' @rdname Risk
+#' @export
+riskSAE <- function(y, N, prior, avg) {
     sae <- vapply(y, function(y_) sum(abs(mean(y_) - y_)), 0)
     sum(sae)
 }
