@@ -76,7 +76,9 @@ makeTree <- function(formula, data,
             sum(test_set[[1L]] != pred) / nrow(test_set)
         }
     
-        tuning <- sort(tree$getTuning(), decreasing = FALSE)
+        # Always include 0 as a possible setting for the tuning parameter.
+        tuning <- c(0, sort(tree$getTuning(), decreasing = FALSE))
+        tuning <- unique(tuning)
         cv <- crossValidate(data, trainTree, validateTree, tuning, folds)
         best <- which.min(cv$estimate)
 
