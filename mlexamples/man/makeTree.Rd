@@ -1,10 +1,10 @@
 \name{makeTree}
 \alias{makeTree}
-\title{Build A Classification Tree}
+\title{Grow A Classification Tree}
 \usage{
-  makeTree(formula, data, build_risk = costGini,
-    prune_risk = costError, min_split = 20L,
-    min_bucket = min_split\%/\%3, folds = 10L)
+  makeTree(formula, data, build_risk = riskGini,
+    prune_risk = riskError, min_split = 20L,
+    min_bucket = round(min_split/3), folds = 10L, prior)
 }
 \arguments{
   \item{formula}{a formula, with a response and
@@ -28,16 +28,20 @@
   \item{folds}{the number of folds to be used in
   cross-validation of the cost-complexity parameter. If
   this is not positive, cross-validation will be skipped.}
+
+  \item{prior}{a numeric vector of prior probabilities for
+  each class. This parameter is ignored when doing
+  regression.}
 }
 \value{
   a reference class ClassTree, representing the
   classification tree.
 }
 \description{
-  This function builds a classification tree from data,
+  This function grows a classification tree from data,
   following the CART algorithm described in "Classification
-  and Regression Trees". Regression trees, missing data,
-  and nominal covariates are not yet supported.
+  and Regression Trees". Regression trees and missing data
+  are not yet supported.
 }
 \examples{
 # Build a classification tree for Fisher's iris data using defaults.
@@ -46,7 +50,14 @@ makeTree(Species ~ ., iris)
 # Build a classification tree for the insect spray data using
 # misclassification rate instead of Gini impurity, and require at least 25
 # observations in every split node.
-makeTree(spray ~ count, InsectSprays, build_risk = costError,
+makeTree(spray ~ count, InsectSprays, build_risk = riskError,
          min_split = 25L)
+
+# Build a classifcation tree for the included housing data set, which is
+# somewhat 'large'. This code will take a long time to run.
+\dontrun{data()}
+\dontrun{makeTree(city ~ ., housing)}
+\dontrun{library(rpart)}
+\dontrun{rpart(city ~ ., housing, control = list(xval = 10))}
 }
 

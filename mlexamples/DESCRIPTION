@@ -1,12 +1,17 @@
 Package: mlexamples
-Version: 0.1-0
-Date: 2013-06-27
+Version: 0.2-0
+Date: 2013-10-20
 Title: Machine Learning Examples
 License: GPL-3
 Author: Nick Ulle
 Maintainer: Nick Ulle <nick.ulle@gmail.com>
 Description: This package provides various machine learning algorithms
     implemented in pure R, for testing performance of compiled R code.
+Depends:
+    methods,
+    R (>= 2.10)
+Suggests:
+    rpart
 Collate:
     'tree.R'
     'cv.R'
